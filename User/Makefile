@@ -48,34 +48,44 @@ ifeq ($(WERROR),1)
 	CFLAGS += -Werror
 endif
 
-ifeq ($(shell echo 'int a;' | "${CC}" -Wno-unused-parameter -x c -c - -o /dev/null 2>&1),)
+#
+# On Windows, output file cannot be null.
+# Ref: https://github.com/msys2/MINGW-packages/issues/10520
+#
+ifeq ($(DIST),Windows)
+	OUT_BIN := /tmp/windows_out
+else
+	OUT_BIN := /dev/null
+endif
+
+ifeq ($(shell echo 'int a;' | "${CC}" -Wno-unused-parameter -x c -c - -o "${OUT_BIN}" 2>&1),)
 	CFLAGS += -Wno-unused-parameter
 endif
 
-ifeq ($(shell echo 'int a;' | "${CC}" -Wno-implicit-fallthrough -x c -c - -o /dev/null 2>&1),)
+ifeq ($(shell echo 'int a;' | "${CC}" -Wno-implicit-fallthrough -x c -c - -o "${OUT_BIN}" 2>&1),)
 	CFLAGS += -Wno-implicit-fallthrough
 endif
 
-ifeq ($(shell echo 'int a;' | "${CC}" -Wno-strict-aliasing -x c -c - -o /dev/null 2>&1),)
+ifeq ($(shell echo 'int a;' | "${CC}" -Wno-strict-aliasing -x c -c - -o "${OUT_BIN}" 2>&1),)
 	CFLAGS += -Wno-strict-aliasing
 endif
 
-ifeq ($(shell echo 'int a;' | "${CC}" -Wno-address -x c -c - -o /dev/null 2>&1),)
+ifeq ($(shell echo 'int a;' | "${CC}" -Wno-address -x c -c - -o "${OUT_BIN}" 2>&1),)
 	CFLAGS += -Wno-address
 endif
 
-ifeq ($(shell echo 'int a;' | "${CC}" -Wno-stringop-overflow -x c -c - -o /dev/null 2>&1),)
+ifeq ($(shell echo 'int a;' | "${CC}" -Wno-stringop-overflow -x c -c - -o "${OUT_BIN}" 2>&1),)
 	CFLAGS += -Wno-stringop-overflow
 endif
 
 ifeq ($(DIST),Darwin)
 	ifneq ($(FUZZ),1)
-		ifeq ($(UDK_ARCH),Ia32)
-			CFLAGS  += -mmacosx-version-min=10.6 --target=i386-apple-darwin
-			LDFLAGS += -mmacosx-version-min=10.6 --target=i386-apple-darwin
+		ifeq ($(FATBIN32),1)
+			CFLAGS  += -mmacosx-version-min=10.6 -arch x86_64 -arch i386
+			LDFLAGS += -mmacosx-version-min=10.6 -arch x86_64 -arch i386
 		else
-			CFLAGS  += -mmacosx-version-min=10.6 --target=x86_64-apple-darwin
-			LDFLAGS += -mmacosx-version-min=10.6 --target=x86_64-apple-darwin
+			CFLAGS  += -mmacosx-version-min=10.9 -arch x86_64 -arch arm64
+			LDFLAGS += -mmacosx-version-min=10.9 -arch x86_64 -arch arm64
 		endif
 	endif
 endif
@@ -146,7 +156,7 @@ endif
 # Search Paths.
 #
 CFLAGS += -I$(OC_USER)/User/Include
-CFLAGS += -I$(OC_USER)/Include/Acidanthera -I$(OC_USER)/Include/Apple -I$(OC_USER)/Include/Apple/$(UDK_ARCH) -I$(OC_USER)/Include/Generic -I$(OC_USER)/Include/Intel -I$(OC_USER)/Include/Microsoft -I$(OC_USER)/Include/Nvidia
+CFLAGS += -I$(OC_USER)/Include/Acidanthera -I$(OC_USER)/Include/Apple -I$(OC_USER)/Include/Apple/$(UDK_ARCH) -I$(OC_USER)/Include/Duet -I$(OC_USER)/Include/Generic -I$(OC_USER)/Include/Intel -I$(OC_USER)/Include/Microsoft -I$(OC_USER)/Include/Nvidia
 
 #
 # Skip including UDK when suggesting STANDALONE mode.
@@ -163,15 +173,15 @@ ifneq ($(STANDALONE),1)
 	#
 	# UDK implementations.
 	#
-	OBJS    += UefiLib.o UefiLibPrint.o CpuDeadLoop.o BaseDebugPrintErrorLevelLib.o DebugLib.o PrintLib.o PrintLibInternal.o String.o SafeString.o SwapBytes16.o SwapBytes32.o LinkedList.o HighBitSet32.o HighBitSet64.o MtrrLib.o GetPowerOfTwo32.o GetPowerOfTwo64.o Cpu.o BmpSupportLib.o SafeIntLib.o X86GetInterruptState.o PciLib.o PciExpressLib.o DevicePathUtilities.o UefiDevicePathLib.o DevicePathToText.o DevicePathFromText.o BitField.o CheckSum.o UefiSortLib.o QuickSort.o UserFile.o
+	OBJS    += UefiLib.o UefiLibPrint.o CpuDeadLoop.o BaseDebugPrintErrorLevelLib.o DebugLib.o PrintLib.o PrintLibInternal.o String.o SafeString.o SwapBytes16.o SwapBytes32.o LinkedList.o HighBitSet32.o HighBitSet64.o MtrrLib.o GetPowerOfTwo32.o GetPowerOfTwo64.o Cpu.o BmpSupportLib.o SafeIntLib.o X86GetInterruptState.o PciLib.o PciExpressLib.o DevicePathUtilities.o UefiDevicePathLib.o DevicePathToText.o DevicePathFromText.o BitField.o CheckSum.o UefiSortLib.o QuickSort.o UserFile.o CommonMemoryAllocationLib.o CommonMemoryAllocationLibEx.o BaseMemoryProfileLibNull.o
 	#
 	# Customised/Simplified implementations at userspace level.
 	#
-	OBJS    += UserBaseMemoryLib.o UserBootServices.o UserGlobalVar.o UserMath.o UserMisc.o UserPcd.o UserOcDummy.o
+	OBJS    += UserBaseMemoryLib.o UserBootServices.o UserGlobalVar.o UserMath.o UserMisc.o UserPcd.o UserUnicodeCollation.o UserOcDummy.o
 	#
-	# OcGuardLib targets.
+	# BaseOverflowLib targets.
 	#
-	OBJS    += BitOverflow.o NativeOverflow.o TripleOverflow.o Alignment.o
+	OBJS    += BaseMath.o BaseBitOverflow.o BaseNativeOverflow.o BaseTripleOverflow.o BaseAlignment.o
 	#
 	# OcSerializeLib targets.
 	#
@@ -195,7 +205,7 @@ ifneq ($(STANDALONE),1)
 	#
 	# OcMachoLib targets.
 	#
-	OBJS    += CxxSymbols.o Fat.o Header.o Macho32.o Macho64.o Relocations.o Symbols.o
+	OBJS    += CxxSymbols.o MachoFat.o Header.o Macho32.o Macho64.o Relocations.o Symbols.o
 	#
 	# OcAppleKeysLib targets.
 	#
@@ -207,11 +217,15 @@ ifneq ($(STANDALONE),1)
 	#
 	# OcMiscLib targets.
 	#
-	OBJS    += Math.o ProtocolSupport.o DataPatcher.o PlatformInfo.o
+	OBJS    += ProtocolSupport.o DataPatcher.o PlatformInfo.o
 	#
 	# OcAppleKernelLib targets.
 	#
 	OBJS    += KernelVersion.o
+	#
+	# OcUnicodeCollationEngLib targets.
+	#
+	OBJS    += OcUnicodeCollationEngCommon.o
 	#
 	# OcVariableLib targets.
 	#
@@ -227,14 +241,16 @@ ifneq ($(STANDALONE),1)
 				$(UDK_PATH)/MdePkg/Library/BaseDebugPrintErrorLevelLib:$\
 				$(UDK_PATH)/MdePkg/Library/UefiDebugLibConOut:$\
 				$(UDK_PATH)/MdePkg/Library/BasePrintLib:$\
+				$(UDK_PATH)/MdePkg/Library/BaseOverflowLib:$\
 				$(UDK_PATH)/MdePkg/Library/BaseSafeIntLib:$\
 				$(UDK_PATH)/MdePkg/Library/BasePciLibPciExpress:$\
 				$(UDK_PATH)/MdePkg/Library/BasePciExpressLib:$\
 				$(UDK_PATH)/MdePkg/Library/UefiDevicePathLib:$\
 				$(UDK_PATH)/MdeModulePkg/Library/BaseBmpSupportLib:$\
+				$(UDK_PATH)/MdeModulePkg/Library/BaseMemoryProfileLibNull:$\
+				$(UDK_PATH)/MdeModulePkg/Library/CommonMemoryAllocationLib:$\
 				$(UDK_PATH)/MdeModulePkg/Library/UefiSortLib:$\
 				$(UDK_PATH)/UefiCpuPkg/Library/MtrrLib:$\
-				$(OC_USER)/Library/OcGuardLib:$\
 				$(OC_USER)/Library/OcSerializeLib:$\
 				$(OC_USER)/Library/OcTemplateLib:$\
 				$(OC_USER)/Library/OcXmlLib:$\
@@ -247,6 +263,7 @@ ifneq ($(STANDALONE),1)
 				$(OC_USER)/Library/OcCpuLib/Ia32:$\
 				$(OC_USER)/Library/OcMiscLib:$\
 				$(OC_USER)/Library/OcAppleKernelLib:$\
+				$(OC_USER)/Library/OcUnicodeCollationEngLib:$\
 				$(OC_USER)/Library/OcVariableLib
 endif
 
@@ -328,9 +345,9 @@ coverage: $(PRODUCT) FORCE
 	$(LCOV) --no-checksum --zerocounters --directory .
 	$(LCOV) --no-checksum --capture --initial --directory . --output-file COVERAGE/trace.lcov_base
 	for f in $(FUZZ_DIR)/*; do  ./$(PRODUCT) $$f > /dev/null ; done || true
-	$(LCOV) --no-checksum --capture --directory . --rc lcov_branch_coverage=1  --rc lcov_excl_br_line='LCOV_EXCL_BR_LINE|ASSERT|DEBUG' --output-file COVERAGE/trace.lcov_info || exit 1
-	$(LCOV) --no-checksum -a COVERAGE/trace.lcov_base -a COVERAGE/trace.lcov_info --rc lcov_branch_coverage=1 --rc lcov_excl_br_line='LCOV_EXCL_BR_LINE|ASSERT|DEBUG' --output-file COVERAGE/trace.lcov_tmp || exit 1
-	$(LCOV) --no-checksum -r COVERAGE/trace.lcov_tmp /usr/include/\* --rc lcov_branch_coverage=1  --rc lcov_excl_br_line='LCOV_EXCL_BR_LINE|ASSERT|DEBUG' --output-file COVERAGE/trace.lcov_info_final || exit 1
+	$(LCOV) --no-checksum --capture --directory . --rc lcov_branch_coverage=1  --rc lcov_excl_br_line='LCOV_EXCL_BR_LINE|ASSERT|DEBUG|assert' --output-file COVERAGE/trace.lcov_info || exit 1
+	$(LCOV) --no-checksum -a COVERAGE/trace.lcov_base -a COVERAGE/trace.lcov_info --rc lcov_branch_coverage=1 --rc lcov_excl_br_line='LCOV_EXCL_BR_LINE|ASSERT|DEBUG|assert' --output-file COVERAGE/trace.lcov_tmp || exit 1
+	$(LCOV) --no-checksum -r COVERAGE/trace.lcov_tmp /usr/include/\* $(LCOV_EXCL) --rc lcov_branch_coverage=1  --rc lcov_excl_br_line='LCOV_EXCL_BR_LINE|ASSERT|DEBUG|assert' --output-file COVERAGE/trace.lcov_info_final || exit 1
 	$(GENHTML) --branch-coverage --output-directory COVERAGE COVERAGE/trace.lcov_info_final
 
 clean: FORCE

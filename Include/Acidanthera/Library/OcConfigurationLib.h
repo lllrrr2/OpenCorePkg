@@ -142,6 +142,7 @@ OC_DECLARE (OC_BOOTER_PATCH_ARRAY)
   _(BOOLEAN                     , DiscardHibernateMap       ,     , FALSE  , ()) \
   _(BOOLEAN                     , EnableSafeModeSlide       ,     , FALSE  , ()) \
   _(BOOLEAN                     , EnableWriteUnprotector    ,     , FALSE  , ()) \
+  _(BOOLEAN                     , FixupAppleEfiImages       ,     , FALSE  , ()) \
   _(BOOLEAN                     , ForceBooterSignature      ,     , FALSE  , ()) \
   _(BOOLEAN                     , ForceExitBootServices     ,     , FALSE  , ()) \
   _(BOOLEAN                     , ProtectMemoryRegions      ,     , FALSE  , ()) \
@@ -287,6 +288,7 @@ OC_DECLARE (OC_KERNEL_PATCH_ARRAY)
   _(BOOLEAN                     , CustomPciSerialDevice       ,     , FALSE  , ()) \
   _(BOOLEAN                     , CustomSmbiosGuid            ,     , FALSE  , ()) \
   _(BOOLEAN                     , DisableIoMapper             ,     , FALSE  , ()) \
+  _(BOOLEAN                     , DisableIoMapperMapping      ,     , FALSE  , ()) \
   _(BOOLEAN                     , DisableLinkeditJettison     ,     , FALSE  , ()) \
   _(BOOLEAN                     , DisableRtcChecksum          ,     , FALSE  , ()) \
   _(BOOLEAN                     , ExtendBTFeatureFlags        ,     , FALSE  , ()) \
@@ -334,6 +336,7 @@ OC_DECLARE (OC_MISC_BLESS_ARRAY)
 #define OC_MISC_BOOT_FIELDS(_, __) \
   _(OC_STRING                   , PickerMode                  ,     , OC_STRING_CONSTR ("Builtin", _, __) , OC_DESTR (OC_STRING)) \
   _(OC_STRING                   , HibernateMode               ,     , OC_STRING_CONSTR ("None", _, __)    , OC_DESTR (OC_STRING)) \
+  _(OC_STRING                   , InstanceIdentifier          ,     , OC_STRING_CONSTR ("", _, __)        , OC_DESTR (OC_STRING)) \
   _(OC_STRING                   , LauncherOption              ,     , OC_STRING_CONSTR ("Disabled", _, __), OC_DESTR (OC_STRING) ) \
   _(OC_STRING                   , LauncherPath                ,     , OC_STRING_CONSTR ("Default", _, __) , OC_DESTR (OC_STRING) ) \
   _(UINT32                      , ConsoleAttributes           ,     , 0                                   , ())                   \
@@ -342,6 +345,7 @@ OC_DECLARE (OC_MISC_BLESS_ARRAY)
   _(UINT32                      , TakeoffDelay                ,     , 0                                   , ())                   \
   _(UINT32                      , Timeout                     ,     , 0                                   , ())                   \
   _(BOOLEAN                     , PickerAudioAssist           ,     , FALSE                               , ())                   \
+  _(BOOLEAN                     , HibernateSkipsPicker        ,     , FALSE                               , ())                   \
   _(BOOLEAN                     , HideAuxiliary               ,     , FALSE                               , ())                   \
   _(BOOLEAN                     , PollAppleHotKeys            ,     , FALSE                               , ())                   \
   _(BOOLEAN                     , ShowPicker                  ,     , FALSE                               , ())
@@ -603,6 +607,13 @@ OC_DECLARE (OC_PLATFORM_CONFIG)
 **/
 
 ///
+/// Array of driver names to unload.
+///
+#define OC_UEFI_UNLOAD_ARRAY_FIELDS(_, __) \
+  OC_ARRAY (OC_STRING, _, __)
+OC_DECLARE (OC_UEFI_UNLOAD_ARRAY)
+
+///
 /// Drivers is an ordered array of drivers to load.
 ///
 #define OC_UEFI_DRIVER_ENTRY_FIELDS(_, __) \
@@ -633,16 +644,19 @@ OC_DECLARE (OC_UEFI_APFS)
 /// AppleInput is a set of options to configure OpenCore's reverse engingeered then customised implementation of the AppleEvent protocol.
 ///
 #define OC_UEFI_APPLEINPUT_FIELDS(_, __) \
-  _(OC_STRING                   , AppleEvent            ,     , OC_STRING_CONSTR ("Auto", _, __)  , OC_DESTR (OC_STRING) ) \
-  _(BOOLEAN                     , CustomDelays          ,     , FALSE                             , ()) \
-  _(UINT16                      , KeyInitialDelay       ,     , 50                                , ()) \
-  _(UINT16                      , KeySubsequentDelay    ,     , 5                                 , ()) \
-  _(BOOLEAN                     , GraphicsInputMirroring,     , FALSE                             , ()) \
-  _(UINT32                      , PointerPollMin        ,     , 0                                 , ()) \
-  _(UINT32                      , PointerPollMax        ,     , 0                                 , ()) \
-  _(UINT32                      , PointerPollMask       ,     , ((UINT32) (-1))                   , ()) \
-  _(UINT16                      , PointerSpeedDiv       ,     , 1                                 , ()) \
-  _(UINT16                      , PointerSpeedMul       ,     , 1                                 , ())
+  _(OC_STRING                   , AppleEvent                    ,     , OC_STRING_CONSTR ("Auto", _, __)  , OC_DESTR (OC_STRING) ) \
+  _(BOOLEAN                     , CustomDelays                  ,     , FALSE                             , ()) \
+  _(UINT16                      , KeyInitialDelay               ,     , 50                                , ()) \
+  _(UINT16                      , KeySubsequentDelay            ,     , 5                                 , ()) \
+  _(BOOLEAN                     , GraphicsInputMirroring        ,     , FALSE                             , ()) \
+  _(UINT32                      , PointerPollMin                ,     , 0                                 , ()) \
+  _(UINT32                      , PointerPollMax                ,     , 0                                 , ()) \
+  _(UINT32                      , PointerPollMask               ,     , ((UINT32) (-1))                   , ()) \
+  _(UINT16                      , PointerSpeedDiv               ,     , 1                                 , ()) \
+  _(UINT16                      , PointerSpeedMul               ,     , 1                                 , ()) \
+  _(UINT16                      , PointerDwellClickTimeout      ,     , 0                                 , ()) \
+  _(UINT16                      , PointerDwellDoubleClickTimeout,     , 0                                 , ()) \
+  _(UINT16                      , PointerDwellRadius            ,     , 0                                 , ())
 OC_DECLARE (OC_UEFI_APPLEINPUT)
 
 ///
@@ -681,7 +695,9 @@ OC_DECLARE (OC_UEFI_INPUT)
 ///
 #define OC_UEFI_OUTPUT_FIELDS(_, __) \
   _(OC_STRING                   , ConsoleMode                 ,     , OC_STRING_CONSTR ("", _, __), OC_DESTR (OC_STRING)) \
+  _(OC_STRING                   , ConsoleFont                 ,     , OC_STRING_CONSTR ("", _, __), OC_DESTR (OC_STRING)) \
   _(OC_STRING                   , Resolution                  ,     , OC_STRING_CONSTR ("", _, __), OC_DESTR (OC_STRING)) \
+  _(OC_STRING                   , InitialMode                 ,     , OC_STRING_CONSTR ("", _, __), OC_DESTR (OC_STRING)) \
   _(OC_STRING                   , TextRenderer                ,     , OC_STRING_CONSTR ("", _, __), OC_DESTR (OC_STRING)) \
   _(OC_STRING                   , GopPassThrough              ,     , OC_STRING_CONSTR ("Disabled", _, __), OC_DESTR (OC_STRING)) \
   _(BOOLEAN                     , IgnoreTextInGraphics        ,     , FALSE  , ()) \
@@ -694,6 +710,7 @@ OC_DECLARE (OC_UEFI_INPUT)
   _(BOOLEAN                     , UgaPassThrough              ,     , FALSE  , ()) \
   _(BOOLEAN                     , DirectGopRendering          ,     , FALSE  , ()) \
   _(BOOLEAN                     , ForceResolution             ,     , FALSE  , ()) \
+  _(BOOLEAN                     , GopBurstMode                ,     , FALSE  , ()) \
   _(BOOLEAN                     , ReconnectGraphicsOnConnect  ,     , FALSE  , ())
 OC_DECLARE (OC_UEFI_OUTPUT)
 
@@ -718,6 +735,7 @@ OC_DECLARE (OC_UEFI_OUTPUT)
   _(BOOLEAN                     , FirmwareVolume              ,     , FALSE  , ()) \
   _(BOOLEAN                     , HashServices                ,     , FALSE  , ()) \
   _(BOOLEAN                     , OSInfo                      ,     , FALSE  , ()) \
+  _(BOOLEAN                     , PciIo                       ,     , FALSE  , ()) \
   _(BOOLEAN                     , UnicodeCollation            ,     , FALSE  , ())
 OC_DECLARE (OC_UEFI_PROTOCOL_OVERRIDES)
 
@@ -734,9 +752,11 @@ OC_DECLARE (OC_UEFI_PROTOCOL_OVERRIDES)
   _(BOOLEAN                     , ForgeUefiSupport            ,     , FALSE  , ()) \
   _(BOOLEAN                     , IgnoreInvalidFlexRatio      ,     , FALSE  , ()) \
   _(INT8                        , ResizeGpuBars               ,     , -1     , ()) \
+  _(BOOLEAN                     , ResizeUsePciRbIo            ,     , FALSE  , ()) \
   _(BOOLEAN                     , ReleaseUsbOwnership         ,     , FALSE  , ()) \
   _(BOOLEAN                     , ReloadOptionRoms            ,     , FALSE  , ()) \
   _(BOOLEAN                     , RequestBootVarRouting       ,     , FALSE  , ()) \
+  _(BOOLEAN                     , ShimRetainProtocol          ,     , FALSE  , ()) \
   _(BOOLEAN                     , UnblockFsConnect            ,     , FALSE  , ()) \
   _(BOOLEAN                     , ForceOcWriteFlash           ,     , FALSE  , ())
 OC_DECLARE (OC_UEFI_QUIRKS)
@@ -769,7 +789,8 @@ OC_DECLARE (OC_UEFI_RSVD_ARRAY)
   _(OC_UEFI_OUTPUT              , Output            ,     , OC_CONSTR2 (OC_UEFI_OUTPUT, _, __)             , OC_DESTR (OC_UEFI_OUTPUT)) \
   _(OC_UEFI_PROTOCOL_OVERRIDES  , ProtocolOverrides ,     , OC_CONSTR2 (OC_UEFI_PROTOCOL_OVERRIDES, _, __) , OC_DESTR (OC_UEFI_PROTOCOL_OVERRIDES)) \
   _(OC_UEFI_QUIRKS              , Quirks            ,     , OC_CONSTR2 (OC_UEFI_QUIRKS, _, __)             , OC_DESTR (OC_UEFI_QUIRKS)) \
-  _(OC_UEFI_RSVD_ARRAY          , ReservedMemory    ,     , OC_CONSTR2 (OC_UEFI_RSVD_ARRAY, _, __)         , OC_DESTR (OC_UEFI_RSVD_ARRAY))
+  _(OC_UEFI_RSVD_ARRAY          , ReservedMemory    ,     , OC_CONSTR2 (OC_UEFI_RSVD_ARRAY, _, __)         , OC_DESTR (OC_UEFI_RSVD_ARRAY)) \
+  _(OC_UEFI_UNLOAD_ARRAY        , Unload            ,     , OC_CONSTR2 (OC_UEFI_UNLOAD_ARRAY, _, __)       , OC_DESTR (OC_UEFI_UNLOAD_ARRAY))
 OC_DECLARE (OC_UEFI_CONFIG)
 
 /**

@@ -23,11 +23,11 @@
 
 #include <Library/BaseLib.h>
 #include <Library/BaseMemoryLib.h>
+#include <Library/BaseOverflowLib.h>
 #include <Library/OcConsoleLib.h>
 #include <Library/OcCryptoLib.h>
 #include <Library/OcDebugLogLib.h>
 #include <Library/DevicePathLib.h>
-#include <Library/OcGuardLib.h>
 #include <Library/OcTimerLib.h>
 #include <Library/OcTypingLib.h>
 #include <Library/MemoryAllocationLib.h>
@@ -68,6 +68,15 @@ typedef _TAB_FOCUS TAB_FOCUS;
 
 STATIC TAB_FOCUS  mFocusList[] = {
   TAB_PICKER,
+  TAB_SHUTDOWN,
+  TAB_RESTART,
+ #if defined (BUILTIN_DEMONSTRATE_TYPING)
+  TAB_TYPING_DEMO
+ #endif
+};
+
+STATIC TAB_FOCUS  mFocusListReversed[] = {
+  TAB_PICKER,
   TAB_RESTART,
   TAB_SHUTDOWN,
  #if defined (BUILTIN_DEMONSTRATE_TYPING)
@@ -82,12 +91,7 @@ STATIC TAB_FOCUS  mFocusListMinimal[] = {
  #endif
 };
 
-//
-// Clamp menu entries for 80 column screen using ellipses to avoid wrapping to next line.
-// TODO: (?) Update to actual text mode width, 80 is the guaranteed minimum.
-//
 #define MENU_PREFIX_LENGTH  (5)
-#define SAFE_ENTRY_LENGTH   (80 - MENU_PREFIX_LENGTH - 1)
 
 #define OC_KB_DBG_MAX_COLUMN           80
 #define OC_KB_DBG_DELTA_SAMPLE_COLUMN  0 // 40
@@ -348,6 +352,10 @@ OcShowSimpleBootMenu (
   BOOLEAN                            PlayedOnce;
   BOOLEAN                            PlayChosen;
   BOOLEAN                            ModifiersChanged;
+  UINTN                              Columns;
+  UINTN                              Rows;
+  UINTN                              SafeEntryLength;
+  UINTN                              SuffixLength;
 
  #if defined (BUILTIN_DEMONSTRATE_TYPING)
   INT32  TypingRow;
@@ -377,7 +385,10 @@ OcShowSimpleBootMenu (
 
   FocusState = 0;
   if ((BootContext->PickerContext->PickerAttributes & OC_ATTR_USE_MINIMAL_UI) == 0) {
-    FocusList    = mFocusList;
+    STATIC_ASSERT (ARRAY_SIZE (mFocusList) == ARRAY_SIZE (mFocusListReversed), "Mismatched focus list sizes");
+    FocusList = ((BootContext->PickerContext->PickerAttributes & OC_ATTR_USE_REVERSED_UI) == 0)
+      ? mFocusList
+      : mFocusListReversed;
     NumFocusList = ARRAY_SIZE (mFocusList);
   } else {
     FocusList    = mFocusListMinimal;
@@ -414,11 +425,28 @@ OcShowSimpleBootMenu (
   }
 
   //
-  // Fix overlong menu entries.
+  // Fix overlong menu entries. For very small screens, below a minimum width we
+  // overflow anyway, but other parts of menu will also have overflowed before this.
   //
+  gST->ConOut->QueryMode (gST->ConOut, gST->ConOut->Mode->Mode, &Columns, &Rows);
   for (Index = 0; Index < Count; Index++) {
-    if (StrLen (BootEntries[Index]->Name) > SAFE_ENTRY_LENGTH) {
-      StrCpyS (&BootEntries[Index]->Name[SAFE_ENTRY_LENGTH - L_STR_LEN (L"...")], L_STR_SIZE (L"..."), L"...");
+    SuffixLength = 0;
+    if (BootEntries[Index]->IsExternal) {
+      SuffixLength += L_STR_LEN (OC_MENU_EXTERNAL);
+    }
+
+    if (BootEntries[Index]->IsFolder) {
+      SuffixLength += L_STR_LEN (OC_MENU_DISK_IMAGE);
+    }
+
+    if (Columns > MENU_PREFIX_LENGTH + SuffixLength + L_STR_LEN (L"...") + 1) {
+      SafeEntryLength = Columns - MENU_PREFIX_LENGTH - SuffixLength;
+    } else {
+      SafeEntryLength = L_STR_LEN (L"...") + 1;
+    }
+
+    if (StrLen (BootEntries[Index]->Name) > SafeEntryLength) {
+      StrCpyS (&BootEntries[Index]->Name[SafeEntryLength - L_STR_LEN (L"...")], L_STR_SIZE (L"..."), L"...");
     }
   }
 
@@ -429,11 +457,7 @@ OcShowSimpleBootMenu (
     gST->ConOut->SetAttribute (gST->ConOut, BootContext->PickerContext->ConsoleAttributes & 0x7FU);
   }
 
-  //
-  // Extension for OpenCore direct text render for faster redraw with custom background.
-  //
   gST->ConOut->ClearScreen (gST->ConOut);
-  gST->ConOut->TestString (gST->ConOut, OC_CONSOLE_MARK_CONTROLLED);
 
   while (TRUE) {
     if (FirstIndexRow != -1) {
@@ -532,7 +556,12 @@ OcShowSimpleBootMenu (
           gST->ConOut->OutputString (gST->ConOut, OC_MENU_DISK_IMAGE);
         }
 
-        gST->ConOut->OutputString (gST->ConOut, L"\r\n");
+        //
+        // Forcing cursor each row instead of using CRLF gives correct entry positioning
+        // when we overflow horizontally (in very small modes) and enables writing entry
+        // text (clipped or otherwise) up to the last column.
+        //
+        gST->ConOut->SetCursorPosition (gST->ConOut, 0, MIN (FirstIndexRow + Index + 1, Rows - 1));
       }
 
       if ((BootContext->PickerContext->PickerAttributes & OC_ATTR_USE_MINIMAL_UI) == 0) {
@@ -540,11 +569,20 @@ OcShowSimpleBootMenu (
 
         ShutdownRestartRow = gST->ConOut->Mode->CursorRow;
         gST->ConOut->OutputString (gST->ConOut, L" ");
-        RestartColumn = gST->ConOut->Mode->CursorColumn;
-        gST->ConOut->OutputString (gST->ConOut, L"|Restart|");
-        gST->ConOut->OutputString (gST->ConOut, L"  ");
-        ShutdownColumn = gST->ConOut->Mode->CursorColumn;
-        gST->ConOut->OutputString (gST->ConOut, L"|Shutdown|");
+
+        if ((BootContext->PickerContext->PickerAttributes & OC_ATTR_USE_REVERSED_UI) == 0) {
+          ShutdownColumn = gST->ConOut->Mode->CursorColumn;
+          gST->ConOut->OutputString (gST->ConOut, L"|Shutdown|");
+          gST->ConOut->OutputString (gST->ConOut, L"  ");
+          RestartColumn = gST->ConOut->Mode->CursorColumn;
+          gST->ConOut->OutputString (gST->ConOut, L"|Restart|");
+        } else {
+          RestartColumn = gST->ConOut->Mode->CursorColumn;
+          gST->ConOut->OutputString (gST->ConOut, L"|Restart|");
+          gST->ConOut->OutputString (gST->ConOut, L"  ");
+          ShutdownColumn = gST->ConOut->Mode->CursorColumn;
+          gST->ConOut->OutputString (gST->ConOut, L"|Shutdown|");
+        }
 
         gST->ConOut->OutputString (gST->ConOut, L"\r\n");
       } else {
@@ -603,6 +641,11 @@ OcShowSimpleBootMenu (
         OC_VOICE_OVER_SILENCE_NORMAL_MS
         );
       PlayedOnce = TRUE;
+
+      //
+      // Avoid responding to possibly multiple keys pressed before menu is fully read out.
+      //
+      BootContext->PickerContext->HotKeyContext->FlushTypingBuffer (BootContext->PickerContext);
     }
 
     while (TRUE) {
@@ -858,7 +901,6 @@ OcShowSimplePasswordRequest (
   OcConsoleControlSetMode (EfiConsoleControlScreenText);
   gST->ConOut->EnableCursor (gST->ConOut, FALSE);
   gST->ConOut->ClearScreen (gST->ConOut);
-  gST->ConOut->TestString (gST->ConOut, OC_CONSOLE_MARK_CONTROLLED);
 
   for (Index = 0; Index < OC_PASSWORD_MAX_RETRIES; ++Index) {
     PwIndex = 0;

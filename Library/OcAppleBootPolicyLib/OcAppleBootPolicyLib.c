@@ -750,46 +750,47 @@ STATIC
 EFI_STATUS
 InternalGetBootPathName (
   IN  EFI_DEVICE_PATH_PROTOCOL  *DevicePath,
-  OUT CHAR16                    **BootPathName
+  OUT CHAR16                    **BootPathName,
+  IN  BOOLEAN                   DirectoryOnly
   )
 {
-  UINTN                 Size;
-  CHAR16                *PathName;
-  UINTN                 PathNameSize;
-  FILEPATH_DEVICE_PATH  *FilePath;
-  CHAR16                *Slash;
-  UINTN                 Len;
-  CHAR16                *FilePathName;
+  CHAR16  *PathName;
+  UINTN   PathNameSize;
+  CHAR16  *Slash;
+  UINTN   Len;
+  CHAR16  *FilePathName;
 
   if (  (DevicePathType (DevicePath) == MEDIA_DEVICE_PATH)
      && (DevicePathSubType (DevicePath) == MEDIA_FILEPATH_DP))
   {
-    FilePath = (FILEPATH_DEVICE_PATH *)DevicePath;
+    PathNameSize = OcFileDevicePathFullNameSize (DevicePath);
 
-    Size = OcFileDevicePathNameSize (FilePath);
-
-    PathNameSize = Size + sizeof (CHAR16);
-    PathName     = AllocateZeroPool (PathNameSize);
-
+    PathName = AllocatePool (PathNameSize);
     if (PathName == NULL) {
       return EFI_OUT_OF_RESOURCES;
     }
 
-    CopyMem (PathName, FilePath->PathName, Size);
+    OcFileDevicePathFullName (
+      PathName,
+      (FILEPATH_DEVICE_PATH *)DevicePath,
+      PathNameSize
+      );
 
-    Slash = StrStr (PathName, L"\\");
+    if (DirectoryOnly) {
+      Slash = StrStr (PathName, L"\\");
 
-    if (Slash != NULL) {
-      Len = StrLen (PathName);
+      if (Slash != NULL) {
+        Len = StrLen (PathName);
 
-      FilePathName = &PathName[Len - 1];
+        FilePathName = &PathName[Len - 1];
 
-      while (*FilePathName != L'\\') {
-        *FilePathName = L'\0';
-        --FilePathName;
+        while (*FilePathName != L'\\') {
+          *FilePathName = L'\0';
+          --FilePathName;
+        }
+      } else {
+        StrCpyS (PathName, PathNameSize, L"\\");
       }
-    } else {
-      StrCpyS (PathName, PathNameSize, L"\\");
     }
   } else {
     PathName = AllocateZeroPool (sizeof (L"\\"));
@@ -1055,10 +1056,11 @@ BootPolicyGetBootFileEx (
 }
 
 EFI_STATUS
-OcBootPolicyDevicePathToDirPath (
+InternalBootPolicyDevicePathToDirPath (
   IN  EFI_DEVICE_PATH_PROTOCOL  *DevicePath,
   OUT CHAR16                    **BootPathName,
-  OUT EFI_HANDLE                *Device
+  OUT EFI_HANDLE                *Device,
+  IN  BOOLEAN                   DirectoryOnly
   )
 {
   EFI_STATUS  Status;
@@ -1079,12 +1081,65 @@ OcBootPolicyDevicePathToDirPath (
     return Status;
   }
 
-  Status = InternalGetBootPathName (DevicePath, BootPathName);
+  return InternalGetBootPathName (DevicePath, BootPathName, DirectoryOnly);
+}
+
+EFI_STATUS
+OcBootPolicyDevicePathToDirPath (
+  IN  EFI_DEVICE_PATH_PROTOCOL         *DevicePath,
+  OUT CHAR16                           **BootPathName,
+  OUT EFI_SIMPLE_FILE_SYSTEM_PROTOCOL  **FileSystem
+  )
+{
+  EFI_STATUS  Status;
+  EFI_HANDLE  Device;
+
+  ASSERT (DevicePath != NULL);
+  ASSERT (BootPathName != NULL);
+  ASSERT (FileSystem != NULL);
+
+  Status = InternalBootPolicyDevicePathToDirPath (
+             DevicePath,
+             BootPathName,
+             &Device,
+             TRUE
+             );
+
   if (EFI_ERROR (Status)) {
     return Status;
   }
 
-  return EFI_SUCCESS;
+  Status = gBS->HandleProtocol (
+                  Device,
+                  &gEfiSimpleFileSystemProtocolGuid,
+                  (VOID **)FileSystem
+                  );
+
+  if (EFI_ERROR (Status)) {
+    FreePool (BootPathName);
+    BootPathName = NULL;
+  }
+
+  return Status;
+}
+
+EFI_STATUS
+OcBootPolicyDevicePathToFilePath (
+  IN  EFI_DEVICE_PATH_PROTOCOL  *DevicePath,
+  OUT CHAR16                    **BootPathName
+  )
+{
+  EFI_HANDLE  Device;
+
+  ASSERT (DevicePath != NULL);
+  ASSERT (BootPathName != NULL);
+
+  return InternalBootPolicyDevicePathToDirPath (
+           DevicePath,
+           BootPathName,
+           &Device,
+           FALSE
+           );
 }
 
 STATIC
@@ -1105,10 +1160,11 @@ OcBootPolicyDevicePathToDirPathAndApfsHandle (
   ASSERT (Device != NULL);
   ASSERT (ApfsVolumeHandle != NULL);
 
-  Status = OcBootPolicyDevicePathToDirPath (
+  Status = InternalBootPolicyDevicePathToDirPath (
              DevicePath,
              BootPathName,
-             Device
+             Device,
+             TRUE
              );
   if (EFI_ERROR (Status)) {
     return Status;
@@ -1669,7 +1725,7 @@ OcAppleBootPolicyInstallProtocol (
   if (Reinstall) {
     Status = OcUninstallAllProtocolInstances (&gAppleBootPolicyProtocolGuid);
     if (EFI_ERROR (Status)) {
-      DEBUG ((DEBUG_ERROR, "OCBP: Uninstall failed: %r\n", Status));
+      DEBUG ((DEBUG_ERROR, "OCBP: Uninstall failed - %r\n", Status));
       return NULL;
     }
   } else {

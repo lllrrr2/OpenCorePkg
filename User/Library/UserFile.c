@@ -92,21 +92,22 @@ UserReadFile (
     return NULL;
   }
 
-  Buffer = AllocatePool (FileSize + 1);
+  Buffer = AllocatePool ((UINTN)FileSize + 1);
   if (Buffer == NULL) {
     fclose (FilePtr);
     return NULL;
   }
 
-  if (fread (Buffer, FileSize, 1, FilePtr) != 1) {
+  if (fread (Buffer, (size_t)FileSize, 1, FilePtr) != 1) {
     fclose (FilePtr);
+    free (Buffer);
     return NULL;
   }
 
   fclose (FilePtr);
 
   Buffer[FileSize] = 0;
-  *Size            = FileSize;
+  *Size            = (UINT32)FileSize;
 
   return Buffer;
 }
@@ -114,11 +115,14 @@ UserReadFile (
 VOID
 UserWriteFile (
   IN  CONST CHAR8  *FileName,
-  IN  VOID         *Data,
+  IN  CONST VOID   *Data,
   IN  UINT32       Size
   )
 {
   FILE  *FilePtr;
+
+  ASSERT (FileName != NULL);
+  ASSERT (Data != NULL);
 
   FilePtr = fopen (FileName, "wb");
 
@@ -127,6 +131,7 @@ UserWriteFile (
   }
 
   if (fwrite (Data, Size, 1, FilePtr) != 1) {
+    fclose (FilePtr);
     abort ();
   }
 

@@ -38,8 +38,8 @@ typedef enum {
   OcCpuGenerationPreYonah,
   OcCpuGenerationYonahMerom,
   OcCpuGenerationPenryn,
-  OcCpuGenerationNehalem,
   OcCpuGenerationBonnell,
+  OcCpuGenerationNehalem,
   OcCpuGenerationWestmere,
   OcCpuGenerationSilvermont,
   OcCpuGenerationSandyBridge,
@@ -56,6 +56,8 @@ typedef enum {
   OcCpuGenerationIceLake,
   OcCpuGenerationTigerLake,
   OcCpuGenerationAlderLake,
+  OcCpuGenerationRaptorLake,
+  OcCpuGenerationArrowLake,
   OcCpuGenerationMaxGeneration
 } OC_CPU_GENERATION;
 

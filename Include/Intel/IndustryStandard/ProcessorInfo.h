@@ -128,16 +128,59 @@
 #define MSR_DRAM_PERF_STATUS    0x61B
 #define MSR_DRAM_POWER_INFO     0x61C
 
-/// x86 Page Address Translation
-enum {
-  PageAddressTranslationUncached       = 0,
-  PageAddressTranslationWriteCombining = 1,
-  PageAddressTranslationWriteThrough   = 4,
-  PageAddressTranslationWriteProtected = 5,
-  PageAddressTranslationWriteBack      = 6,
-  /// Uncached, but can be overriden by MTRR
-  PageAddressTranslationOverridableUncached = 7,
-};
+//
+// Page Attribute Table (PAT) cache types.
+// Note that the final memory cache type is defined according to the combination (ref. 11.5.2.2) of
+// PAT (ref. 11.12) and MTRR (ref. 11.11) and cannot be derived from either separately.
+// REF: Intel® 64 and IA-32 Architectures Software Developer’s Manual - Volume 3A: System Programming Guide, Part 1
+//
+typedef enum {
+  PatUncacheable    = 0,
+  PatWriteCombining = 1, ///< Special hardware burst mode (not L1-L3) intended for graphics memory (ref. 11.3.1).
+  PatWriteThrough   = 4,
+  PatWriteProtected = 5,
+  PatWriteBack      = 6,
+  PatUncached       = 7
+} PAT_MEMORY_CACHE_TYPE;
+
+//
+// Mask for one PAT entry in MSR.
+//
+#define PAT_ENTRY_BIT_MASK  (0xFFU)
+
+//
+// Number of PAT entries in MSR.
+//
+#define PAT_INDEX_MAX  8
+
+//
+// Specify PAT type at index in PAT MSR.
+//
+#define SET_PAT_N(PatIndex, PatType)  (LShiftU64 ((PatType) * 1ULL, (PatIndex) * 8))
+
+//
+// Get PAT type at index in PAT MSR.
+//
+#define GET_PAT_N(PatMsr, PatIndex)  (RShiftU64 ((PatMsr), (PatIndex) * 8) & PAT_ENTRY_BIT_MASK)
+
+//
+// Modify PAT type at index in PAT MSR.
+//
+#define MODIFY_PAT_MSR(PatMsr, PatIndex, PatType)  (((PatMsr) & ~SET_PAT_N ((PatIndex), PAT_ENTRY_BIT_MASK)) | SET_PAT_N ((PatIndex), (PatType)))
+
+//
+// Intel defined power-on default contents of MSR_IA32_CR_PAT.
+//
+#define PAT_DEFAULTS  (             \
+  SET_PAT_N (0, PatWriteBack)     | \
+  SET_PAT_N (1, PatWriteThrough)  | \
+  SET_PAT_N (2, PatUncached)      | \
+  SET_PAT_N (3, PatUncacheable)   | \
+  SET_PAT_N (4, PatWriteBack)     | \
+  SET_PAT_N (5, PatWriteThrough)  | \
+  SET_PAT_N (6, PatUncached)      | \
+  SET_PAT_N (7, PatUncacheable)     \
+)
 
 #define K8_FIDVID_STATUS   0xC0010042
 #define K10_COFVID_STATUS  0xC0010071
@@ -198,19 +241,27 @@ enum {
 #define CPU_MODEL_COFFEELAKE_DT   0x9E
 #define CPU_MODEL_ICELAKE_Y       0x7D
 #define CPU_MODEL_ICELAKE_U       0x7E
-#define CPU_MODEL_ICELAKE_SP      0x9F /* Some variation of Ice Lake */
-#define CPU_MODEL_COMETLAKE_S     0xA5 /* desktop CometLake */
-#define CPU_MODEL_COMETLAKE_Y     0xA5 /* aka 10th generation Amber Lake Y */
+#define CPU_MODEL_ICELAKE_SP      0x9F ///< Some variation of Ice Lake
+#define CPU_MODEL_COMETLAKE_S     0xA5 ///< desktop CometLake
+#define CPU_MODEL_COMETLAKE_Y     0xA5 ///< aka 10th generation Amber Lake Y
 #define CPU_MODEL_COMETLAKE_U     0xA6
-#define CPU_MODEL_ROCKETLAKE_S    0xA7/* desktop RocketLake */
+#define CPU_MODEL_ROCKETLAKE_S    0xA7 ///< desktop RocketLake
 #define CPU_MODEL_TIGERLAKE_U     0x8C
 #define CPU_MODEL_ALDERLAKE_S     0x97
+#define CPU_MODEL_RAPTORLAKE_S    0xB7 ///< Raptor Lake B0 stepping
+#define CPU_MODEL_RAPTORLAKE_HX   0xBF ///< Raptor Lake C0 stepping
+#define CPU_MODEL_ARROWLAKE_S     0xC6 ///< desktop ArrowLake
+#define CPU_MODEL_ARROWLAKE_HX    0xC5
+#define CPU_MODEL_ARROWLAKE_U     0xB5
 
 #define AMD_CPU_FAMILY          0xF
+#define AMD_CPU_EXT_FAMILY_0FH  0x0
+#define AMD_CPU_EXT_FAMILY_10H  0x1
 #define AMD_CPU_EXT_FAMILY_15H  0x6
 #define AMD_CPU_EXT_FAMILY_16H  0x7
 #define AMD_CPU_EXT_FAMILY_17H  0x8
 #define AMD_CPU_EXT_FAMILY_19H  0xA
+#define AMD_CPU_EXT_FAMILY_1AH  0xB
 
 // CPU_P_STATE_COORDINATION
 /// P-State Coordination

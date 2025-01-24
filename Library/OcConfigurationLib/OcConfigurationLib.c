@@ -73,6 +73,7 @@ OC_STRUCTORS (OC_PLATFORM_NVRAM_CONFIG, ())
 OC_STRUCTORS (OC_PLATFORM_SMBIOS_CONFIG, ())
 OC_STRUCTORS (OC_PLATFORM_CONFIG, ())
 
+OC_ARRAY_STRUCTORS (OC_UEFI_UNLOAD_ARRAY)
 OC_STRUCTORS (OC_UEFI_DRIVER_ENTRY, ())
 OC_ARRAY_STRUCTORS (OC_UEFI_DRIVER_ARRAY)
 OC_STRUCTORS (OC_UEFI_APFS, ())
@@ -189,6 +190,7 @@ OC_SCHEMA
   OC_SCHEMA_BOOLEAN_IN ("DiscardHibernateMap",    OC_GLOBAL_CONFIG, Booter.Quirks.DiscardHibernateMap),
   OC_SCHEMA_BOOLEAN_IN ("EnableSafeModeSlide",    OC_GLOBAL_CONFIG, Booter.Quirks.EnableSafeModeSlide),
   OC_SCHEMA_BOOLEAN_IN ("EnableWriteUnprotector", OC_GLOBAL_CONFIG, Booter.Quirks.EnableWriteUnprotector),
+  OC_SCHEMA_BOOLEAN_IN ("FixupAppleEfiImages",    OC_GLOBAL_CONFIG, Booter.Quirks.FixupAppleEfiImages),
   OC_SCHEMA_BOOLEAN_IN ("ForceBooterSignature",   OC_GLOBAL_CONFIG, Booter.Quirks.ForceBooterSignature),
   OC_SCHEMA_BOOLEAN_IN ("ForceExitBootServices",  OC_GLOBAL_CONFIG, Booter.Quirks.ForceExitBootServices),
   OC_SCHEMA_BOOLEAN_IN ("ProtectMemoryRegions",   OC_GLOBAL_CONFIG, Booter.Quirks.ProtectMemoryRegions),
@@ -356,6 +358,7 @@ OC_SCHEMA
   OC_SCHEMA_BOOLEAN_IN ("CustomPciSerialDevice",   OC_GLOBAL_CONFIG, Kernel.Quirks.CustomPciSerialDevice),
   OC_SCHEMA_BOOLEAN_IN ("CustomSMBIOSGuid",        OC_GLOBAL_CONFIG, Kernel.Quirks.CustomSmbiosGuid),
   OC_SCHEMA_BOOLEAN_IN ("DisableIoMapper",         OC_GLOBAL_CONFIG, Kernel.Quirks.DisableIoMapper),
+  OC_SCHEMA_BOOLEAN_IN ("DisableIoMapperMapping",  OC_GLOBAL_CONFIG, Kernel.Quirks.DisableIoMapperMapping),
   OC_SCHEMA_BOOLEAN_IN ("DisableLinkeditJettison", OC_GLOBAL_CONFIG, Kernel.Quirks.DisableLinkeditJettison),
   OC_SCHEMA_BOOLEAN_IN ("DisableRtcChecksum",      OC_GLOBAL_CONFIG, Kernel.Quirks.DisableRtcChecksum),
   OC_SCHEMA_BOOLEAN_IN ("ExtendBTFeatureFlags",    OC_GLOBAL_CONFIG, Kernel.Quirks.ExtendBTFeatureFlags),
@@ -405,19 +408,21 @@ OC_SCHEMA
 STATIC
 OC_SCHEMA
   mMiscConfigurationBootSchema[] = {
-  OC_SCHEMA_INTEGER_IN ("ConsoleAttributes", OC_GLOBAL_CONFIG, Misc.Boot.ConsoleAttributes),
-  OC_SCHEMA_STRING_IN ("HibernateMode",      OC_GLOBAL_CONFIG, Misc.Boot.HibernateMode),
-  OC_SCHEMA_BOOLEAN_IN ("HideAuxiliary",     OC_GLOBAL_CONFIG, Misc.Boot.HideAuxiliary),
-  OC_SCHEMA_STRING_IN ("LauncherOption",     OC_GLOBAL_CONFIG, Misc.Boot.LauncherOption),
-  OC_SCHEMA_STRING_IN ("LauncherPath",       OC_GLOBAL_CONFIG, Misc.Boot.LauncherPath),
-  OC_SCHEMA_INTEGER_IN ("PickerAttributes",  OC_GLOBAL_CONFIG, Misc.Boot.PickerAttributes),
-  OC_SCHEMA_BOOLEAN_IN ("PickerAudioAssist", OC_GLOBAL_CONFIG, Misc.Boot.PickerAudioAssist),
-  OC_SCHEMA_STRING_IN ("PickerMode",         OC_GLOBAL_CONFIG, Misc.Boot.PickerMode),
-  OC_SCHEMA_STRING_IN ("PickerVariant",      OC_GLOBAL_CONFIG, Misc.Boot.PickerVariant),
-  OC_SCHEMA_BOOLEAN_IN ("PollAppleHotKeys",  OC_GLOBAL_CONFIG, Misc.Boot.PollAppleHotKeys),
-  OC_SCHEMA_BOOLEAN_IN ("ShowPicker",        OC_GLOBAL_CONFIG, Misc.Boot.ShowPicker),
-  OC_SCHEMA_INTEGER_IN ("TakeoffDelay",      OC_GLOBAL_CONFIG, Misc.Boot.TakeoffDelay),
-  OC_SCHEMA_INTEGER_IN ("Timeout",           OC_GLOBAL_CONFIG, Misc.Boot.Timeout),
+  OC_SCHEMA_INTEGER_IN ("ConsoleAttributes",    OC_GLOBAL_CONFIG, Misc.Boot.ConsoleAttributes),
+  OC_SCHEMA_STRING_IN ("HibernateMode",         OC_GLOBAL_CONFIG, Misc.Boot.HibernateMode),
+  OC_SCHEMA_BOOLEAN_IN ("HibernateSkipsPicker", OC_GLOBAL_CONFIG, Misc.Boot.HibernateSkipsPicker),
+  OC_SCHEMA_BOOLEAN_IN ("HideAuxiliary",        OC_GLOBAL_CONFIG, Misc.Boot.HideAuxiliary),
+  OC_SCHEMA_STRING_IN ("InstanceIdentifier",    OC_GLOBAL_CONFIG, Misc.Boot.InstanceIdentifier),
+  OC_SCHEMA_STRING_IN ("LauncherOption",        OC_GLOBAL_CONFIG, Misc.Boot.LauncherOption),
+  OC_SCHEMA_STRING_IN ("LauncherPath",          OC_GLOBAL_CONFIG, Misc.Boot.LauncherPath),
+  OC_SCHEMA_INTEGER_IN ("PickerAttributes",     OC_GLOBAL_CONFIG, Misc.Boot.PickerAttributes),
+  OC_SCHEMA_BOOLEAN_IN ("PickerAudioAssist",    OC_GLOBAL_CONFIG, Misc.Boot.PickerAudioAssist),
+  OC_SCHEMA_STRING_IN ("PickerMode",            OC_GLOBAL_CONFIG, Misc.Boot.PickerMode),
+  OC_SCHEMA_STRING_IN ("PickerVariant",         OC_GLOBAL_CONFIG, Misc.Boot.PickerVariant),
+  OC_SCHEMA_BOOLEAN_IN ("PollAppleHotKeys",     OC_GLOBAL_CONFIG, Misc.Boot.PollAppleHotKeys),
+  OC_SCHEMA_BOOLEAN_IN ("ShowPicker",           OC_GLOBAL_CONFIG, Misc.Boot.ShowPicker),
+  OC_SCHEMA_INTEGER_IN ("TakeoffDelay",         OC_GLOBAL_CONFIG, Misc.Boot.TakeoffDelay),
+  OC_SCHEMA_INTEGER_IN ("Timeout",              OC_GLOBAL_CONFIG, Misc.Boot.Timeout),
 };
 
 STATIC
@@ -723,6 +728,8 @@ OC_SCHEMA
   OC_SCHEMA_BOOLEAN_IN ("ReloadOptionRoms",         OC_GLOBAL_CONFIG, Uefi.Quirks.ReloadOptionRoms),
   OC_SCHEMA_BOOLEAN_IN ("RequestBootVarRouting",    OC_GLOBAL_CONFIG, Uefi.Quirks.RequestBootVarRouting),
   OC_SCHEMA_INTEGER_IN ("ResizeGpuBars",            OC_GLOBAL_CONFIG, Uefi.Quirks.ResizeGpuBars),
+  OC_SCHEMA_BOOLEAN_IN ("ResizeUsePciRbIo",         OC_GLOBAL_CONFIG, Uefi.Quirks.ResizeUsePciRbIo),
+  OC_SCHEMA_BOOLEAN_IN ("ShimRetainProtocol",       OC_GLOBAL_CONFIG, Uefi.Quirks.ShimRetainProtocol),
   OC_SCHEMA_INTEGER_IN ("TscSyncTimeout",           OC_GLOBAL_CONFIG, Uefi.Quirks.TscSyncTimeout),
   OC_SCHEMA_BOOLEAN_IN ("UnblockFsConnect",         OC_GLOBAL_CONFIG, Uefi.Quirks.UnblockFsConnect)
 };
@@ -747,6 +754,7 @@ OC_SCHEMA
   OC_SCHEMA_BOOLEAN_IN ("FirmwareVolume",          OC_GLOBAL_CONFIG, Uefi.ProtocolOverrides.FirmwareVolume),
   OC_SCHEMA_BOOLEAN_IN ("HashServices",            OC_GLOBAL_CONFIG, Uefi.ProtocolOverrides.HashServices),
   OC_SCHEMA_BOOLEAN_IN ("OSInfo",                  OC_GLOBAL_CONFIG, Uefi.ProtocolOverrides.OSInfo),
+  OC_SCHEMA_BOOLEAN_IN ("PciIo",                   OC_GLOBAL_CONFIG, Uefi.ProtocolOverrides.PciIo),
   OC_SCHEMA_BOOLEAN_IN ("UnicodeCollation",        OC_GLOBAL_CONFIG, Uefi.ProtocolOverrides.UnicodeCollation)
 };
 
@@ -764,16 +772,19 @@ OC_SCHEMA
 STATIC
 OC_SCHEMA
   mUefiAppleInputSchema[] = {
-  OC_SCHEMA_STRING_IN ("AppleEvent",              OC_GLOBAL_CONFIG, Uefi.AppleInput.AppleEvent),
-  OC_SCHEMA_BOOLEAN_IN ("CustomDelays",           OC_GLOBAL_CONFIG, Uefi.AppleInput.CustomDelays),
-  OC_SCHEMA_BOOLEAN_IN ("GraphicsInputMirroring", OC_GLOBAL_CONFIG, Uefi.AppleInput.GraphicsInputMirroring),
-  OC_SCHEMA_INTEGER_IN ("KeyInitialDelay",        OC_GLOBAL_CONFIG, Uefi.AppleInput.KeyInitialDelay),
-  OC_SCHEMA_INTEGER_IN ("KeySubsequentDelay",     OC_GLOBAL_CONFIG, Uefi.AppleInput.KeySubsequentDelay),
-  OC_SCHEMA_INTEGER_IN ("PointerPollMask",        OC_GLOBAL_CONFIG, Uefi.AppleInput.PointerPollMask),
-  OC_SCHEMA_INTEGER_IN ("PointerPollMax",         OC_GLOBAL_CONFIG, Uefi.AppleInput.PointerPollMax),
-  OC_SCHEMA_INTEGER_IN ("PointerPollMin",         OC_GLOBAL_CONFIG, Uefi.AppleInput.PointerPollMin),
-  OC_SCHEMA_INTEGER_IN ("PointerSpeedDiv",        OC_GLOBAL_CONFIG, Uefi.AppleInput.PointerSpeedDiv),
-  OC_SCHEMA_INTEGER_IN ("PointerSpeedMul",        OC_GLOBAL_CONFIG, Uefi.AppleInput.PointerSpeedMul),
+  OC_SCHEMA_STRING_IN ("AppleEvent",                      OC_GLOBAL_CONFIG, Uefi.AppleInput.AppleEvent),
+  OC_SCHEMA_BOOLEAN_IN ("CustomDelays",                   OC_GLOBAL_CONFIG, Uefi.AppleInput.CustomDelays),
+  OC_SCHEMA_BOOLEAN_IN ("GraphicsInputMirroring",         OC_GLOBAL_CONFIG, Uefi.AppleInput.GraphicsInputMirroring),
+  OC_SCHEMA_INTEGER_IN ("KeyInitialDelay",                OC_GLOBAL_CONFIG, Uefi.AppleInput.KeyInitialDelay),
+  OC_SCHEMA_INTEGER_IN ("KeySubsequentDelay",             OC_GLOBAL_CONFIG, Uefi.AppleInput.KeySubsequentDelay),
+  OC_SCHEMA_INTEGER_IN ("PointerDwellClickTimeout",       OC_GLOBAL_CONFIG, Uefi.AppleInput.PointerDwellClickTimeout),
+  OC_SCHEMA_INTEGER_IN ("PointerDwellDoubleClickTimeout", OC_GLOBAL_CONFIG, Uefi.AppleInput.PointerDwellDoubleClickTimeout),
+  OC_SCHEMA_INTEGER_IN ("PointerDwellRadius",             OC_GLOBAL_CONFIG, Uefi.AppleInput.PointerDwellRadius),
+  OC_SCHEMA_INTEGER_IN ("PointerPollMask",                OC_GLOBAL_CONFIG, Uefi.AppleInput.PointerPollMask),
+  OC_SCHEMA_INTEGER_IN ("PointerPollMax",                 OC_GLOBAL_CONFIG, Uefi.AppleInput.PointerPollMax),
+  OC_SCHEMA_INTEGER_IN ("PointerPollMin",                 OC_GLOBAL_CONFIG, Uefi.AppleInput.PointerPollMin),
+  OC_SCHEMA_INTEGER_IN ("PointerSpeedDiv",                OC_GLOBAL_CONFIG, Uefi.AppleInput.PointerSpeedDiv),
+  OC_SCHEMA_INTEGER_IN ("PointerSpeedMul",                OC_GLOBAL_CONFIG, Uefi.AppleInput.PointerSpeedMul),
 };
 
 STATIC
@@ -809,11 +820,14 @@ STATIC
 OC_SCHEMA
   mUefiOutputSchema[] = {
   OC_SCHEMA_BOOLEAN_IN ("ClearScreenOnModeSwitch",    OC_GLOBAL_CONFIG, Uefi.Output.ClearScreenOnModeSwitch),
+  OC_SCHEMA_STRING_IN ("ConsoleFont",                 OC_GLOBAL_CONFIG, Uefi.Output.ConsoleFont),
   OC_SCHEMA_STRING_IN ("ConsoleMode",                 OC_GLOBAL_CONFIG, Uefi.Output.ConsoleMode),
   OC_SCHEMA_BOOLEAN_IN ("DirectGopRendering",         OC_GLOBAL_CONFIG, Uefi.Output.DirectGopRendering),
   OC_SCHEMA_BOOLEAN_IN ("ForceResolution",            OC_GLOBAL_CONFIG, Uefi.Output.ForceResolution),
+  OC_SCHEMA_BOOLEAN_IN ("GopBurstMode",               OC_GLOBAL_CONFIG, Uefi.Output.GopBurstMode),
   OC_SCHEMA_STRING_IN ("GopPassThrough",              OC_GLOBAL_CONFIG, Uefi.Output.GopPassThrough),
   OC_SCHEMA_BOOLEAN_IN ("IgnoreTextInGraphics",       OC_GLOBAL_CONFIG, Uefi.Output.IgnoreTextInGraphics),
+  OC_SCHEMA_STRING_IN ("InitialMode",                 OC_GLOBAL_CONFIG, Uefi.Output.InitialMode),
   OC_SCHEMA_BOOLEAN_IN ("ProvideConsoleGop",          OC_GLOBAL_CONFIG, Uefi.Output.ProvideConsoleGop),
   OC_SCHEMA_BOOLEAN_IN ("ReconnectGraphicsOnConnect", OC_GLOBAL_CONFIG, Uefi.Output.ReconnectGraphicsOnConnect),
   OC_SCHEMA_BOOLEAN_IN ("ReconnectOnResChange",       OC_GLOBAL_CONFIG, Uefi.Output.ReconnectOnResChange),
@@ -841,6 +855,10 @@ OC_SCHEMA
 
 STATIC
 OC_SCHEMA
+  mUefiUnloadSchema = OC_SCHEMA_STRING (NULL);
+
+STATIC
+OC_SCHEMA
   mUefiConfigurationSchema[] = {
   OC_SCHEMA_DICT ("APFS",                 mUefiApfsSchema),
   OC_SCHEMA_DICT ("AppleInput",           mUefiAppleInputSchema),
@@ -852,6 +870,7 @@ OC_SCHEMA
   OC_SCHEMA_DICT ("ProtocolOverrides",    mUefiProtocolOverridesSchema),
   OC_SCHEMA_DICT ("Quirks",               mUefiQuirksSchema),
   OC_SCHEMA_ARRAY_IN ("ReservedMemory",   OC_GLOBAL_CONFIG,             Uefi.ReservedMemory, &mUefiReservedMemorySchema),
+  OC_SCHEMA_ARRAY_IN ("Unload",           OC_GLOBAL_CONFIG,             Uefi.Unload,         &mUefiUnloadSchema),
 };
 
 //

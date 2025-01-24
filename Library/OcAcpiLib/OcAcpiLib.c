@@ -21,6 +21,7 @@
 #include <Library/UefiBootServicesTableLib.h>
 #include <Library/OcMemoryLib.h>
 #include <Library/OcMiscLib.h>
+#include <Library/PciLib.h>
 
 #include <IndustryStandard/AcpiAml.h>
 #include <IndustryStandard/Acpi.h>
@@ -28,6 +29,8 @@
 #include <Guid/Acpi.h>
 
 #include <Library/OcAcpiLib.h>
+
+#define PCI_VENDOR_NVIDIA  0x10DE
 
 /**
   Find RSD_PTR Table In Legacy Area
@@ -1255,8 +1258,6 @@ AcpiApplyPatch (
   UINT32                  ReplaceLimit;
   UINT32                  TablePrintSignature;
 
-  DEBUG ((DEBUG_INFO, "OCA: Applying %u byte ACPI patch skip %u, count %u\n", Patch->Size, Patch->Skip, Patch->Count));
-
   if (  (Context->Dsdt != NULL)
      && ((Patch->TableSignature == 0) || (Patch->TableSignature == EFI_ACPI_6_2_DIFFERENTIATED_SYSTEM_DESCRIPTION_TABLE_SIGNATURE))
      && ((Patch->TableLength == 0) || (Context->Dsdt->Length == Patch->TableLength))
@@ -1566,12 +1567,24 @@ AcpiFadtEnableReset (
     // Resetting through port 0xCF9 is universal on Intel and AMD.
     // But may not be the case on e.g. Dell laptops and desktops, which use 0xB2.
     //
+    if (PciRead16 (0) == PCI_VENDOR_NVIDIA) {
+      //
+      // Use 0x64 / 0xFE on NVIDIA chipset platforms.
+      //
+      Context->Fadt->ResetReg.Address = 0x64;
+      Context->Fadt->ResetValue       = 0xFE;
+    } else {
+      //
+      // Use mostly universal default of 0xCF9.
+      //
+      Context->Fadt->ResetReg.Address = 0xCF9;
+      Context->Fadt->ResetValue       = 6;
+    }
+
     Context->Fadt->ResetReg.AddressSpaceId    = EFI_ACPI_6_2_SYSTEM_IO;
     Context->Fadt->ResetReg.RegisterBitWidth  = 8;
     Context->Fadt->ResetReg.RegisterBitOffset = 0;
     Context->Fadt->ResetReg.AccessSize        = EFI_ACPI_6_2_BYTE;
-    Context->Fadt->ResetReg.Address           = 0xCF9;
-    Context->Fadt->ResetValue                 = 6;
   }
 
   AcpiRefreshTableChecksum ((EFI_ACPI_DESCRIPTION_HEADER *)Context->Fadt);

@@ -89,6 +89,8 @@ MiscToolsHasDuplication (
   CONST CHAR8                *MiscToolsSecondaryArgumentsString;
   CONST CHAR8                *MiscToolsPrimaryPathString;
   CONST CHAR8                *MiscToolsSecondaryPathString;
+  BOOLEAN                    MiscToolsPrimaryFullNvramAccess;
+  BOOLEAN                    MiscToolsSecondaryFullNvramAccess;
 
   MiscToolsPrimaryEntry             = *(CONST OC_MISC_TOOLS_ENTRY **)PrimaryEntry;
   MiscToolsSecondaryEntry           = *(CONST OC_MISC_TOOLS_ENTRY **)SecondaryEntry;
@@ -96,13 +98,16 @@ MiscToolsHasDuplication (
   MiscToolsSecondaryArgumentsString = OC_BLOB_GET (&MiscToolsSecondaryEntry->Arguments);
   MiscToolsPrimaryPathString        = OC_BLOB_GET (&MiscToolsPrimaryEntry->Path);
   MiscToolsSecondaryPathString      = OC_BLOB_GET (&MiscToolsSecondaryEntry->Path);
+  MiscToolsPrimaryFullNvramAccess   = MiscToolsPrimaryEntry->FullNvramAccess;
+  MiscToolsSecondaryFullNvramAccess = MiscToolsSecondaryEntry->FullNvramAccess;
 
   if (!MiscToolsPrimaryEntry->Enabled || !MiscToolsSecondaryEntry->Enabled) {
     return FALSE;
   }
 
   if (  (AsciiStrCmp (MiscToolsPrimaryArgumentsString, MiscToolsSecondaryArgumentsString) == 0)
-     && (AsciiStrCmp (MiscToolsPrimaryPathString, MiscToolsSecondaryPathString) == 0))
+     && (AsciiStrCmp (MiscToolsPrimaryPathString, MiscToolsSecondaryPathString) == 0)
+     && (MiscToolsPrimaryFullNvramAccess == MiscToolsSecondaryFullNvramAccess))
   {
     DEBUG ((DEBUG_WARN, "Misc->Tools->Path: %a is duplicated ", MiscToolsPrimaryPathString));
     return TRUE;
@@ -180,6 +185,42 @@ CheckBlessOverride (
 
 STATIC
 UINT32
+ValidateInstanceIdentifier (
+  IN CONST CHAR8  *InstanceIdentifier
+  )
+{
+  UINT32  ErrorCount;
+  CHAR8   InstanceIdentifierCopy[OC_MAX_INSTANCE_IDENTIFIER_SIZE];
+  UINTN   Length;
+
+  ErrorCount = 0;
+
+  if (AsciiStrSize (InstanceIdentifier) > OC_MAX_INSTANCE_IDENTIFIER_SIZE) {
+    DEBUG ((DEBUG_WARN, "Misc->Boot->InstanceIdentifier cannot be longer than %d bytes!\n", OC_MAX_INSTANCE_IDENTIFIER_SIZE));
+    ++ErrorCount;
+  } else {
+    if (AsciiStrStr (InstanceIdentifier, ",") != NULL) {
+      DEBUG ((DEBUG_WARN, "Misc->Boot->InstanceIdentifier cannot contain comma (,)!\n"));
+      ++ErrorCount;
+    }
+
+    //
+    // Illegal chars
+    //
+    Length = AsciiStrLen (InstanceIdentifier);
+    AsciiStrnCpyS (InstanceIdentifierCopy, OC_MAX_INSTANCE_IDENTIFIER_SIZE, InstanceIdentifier, Length);
+    AsciiFilterString (InstanceIdentifierCopy, TRUE);
+    if (OcAsciiStrniCmp (InstanceIdentifierCopy, InstanceIdentifier, Length) != 0) {
+      DEBUG ((DEBUG_WARN, "Misc->Boot->InstanceIdentifier cannot contain CR, LF, TAB or any other non-ASCII characters!\n"));
+      ++ErrorCount;
+    }
+  }
+
+  return ErrorCount;
+}
+
+STATIC
+UINT32
 CheckMiscBoot (
   IN  OC_GLOBAL_CONFIG  *Config
   )
@@ -194,6 +235,7 @@ CheckMiscBoot (
   BOOLEAN               HasOpenCanopyEfiDriver;
   CONST CHAR8           *PickerMode;
   CONST CHAR8           *PickerVariant;
+  CONST CHAR8           *InstanceIdentifier;
   UINTN                 PVSumSize;
   UINTN                 PVPathFixedSize;
   BOOLEAN               IsPickerAudioAssistEnabled;
@@ -252,6 +294,9 @@ CheckMiscBoot (
     DEBUG ((DEBUG_WARN, "Misc->Boot->PickerVariant cannot be empty!\n"));
     ++ErrorCount;
   }
+
+  InstanceIdentifier = OC_BLOB_GET (&Config->Misc.Boot.InstanceIdentifier);
+  ErrorCount        += ValidateInstanceIdentifier (InstanceIdentifier);
 
   //
   // Check the length of path relative to OC directory.

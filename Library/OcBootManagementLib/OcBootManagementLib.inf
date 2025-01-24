@@ -47,6 +47,7 @@
   ImageLoader.c
   PolicyManagement.c
   OcBootManagementLib.c
+  OcResetSystem.c
 
 [Packages]
   OpenCorePkg/OpenCorePkg.dec
@@ -74,24 +75,27 @@
   gAppleBootPickerFileGuid                      ## SOMETIMES_CONSUMES
 
 [Protocols]
-  gAppleBootPolicyProtocolGuid       ## PRODUCES
-  gAppleKeyMapAggregatorProtocolGuid ## SOMETIMES_CONSUMES
-  gEfiSimpleFileSystemProtocolGuid   ## SOMETIMES_CONSUMES
-  gEfiLoadedImageProtocolGuid        ## SOMETIMES_CONSUMES
-  gEfiUsbIoProtocolGuid              ## SOMETIMES_CONSUMES
-  gOcFirmwareRuntimeProtocolGuid     ## SOMETIMES_CONSUMES
-  gOcAudioProtocolGuid               ## SOMETIMES_CONSUMES
-  gAppleBeepGenProtocolGuid          ## SOMETIMES_CONSUMES
-  gOcBootEntryProtocolGuid           ## CONSUMES
+  gAppleBootPolicyProtocolGuid                  ## PRODUCES
+  gAppleKeyMapAggregatorProtocolGuid            ## SOMETIMES_CONSUMES
+  gEfiSimpleFileSystemProtocolGuid              ## SOMETIMES_CONSUMES
+  gEfiLoadedImageProtocolGuid                   ## SOMETIMES_CONSUMES
+  gEfiUsbIoProtocolGuid                         ## SOMETIMES_CONSUMES
+  gOcFirmwareRuntimeProtocolGuid                ## SOMETIMES_CONSUMES
+  gOcAudioProtocolGuid                          ## SOMETIMES_CONSUMES
+  gAppleBeepGenProtocolGuid                     ## SOMETIMES_CONSUMES
+  gOcBootEntryProtocolGuid                      ## CONSUMES
+  gAppleFirmwareUserInterfaceProtocolGuid       ## SOMETIMES_CONSUMES
 
 [LibraryClasses]
   BaseLib
   BaseMemoryLib
+  BaseOverflowLib
   DebugLib
   DevicePathLib
   MemoryAllocationLib
   PrintLib
   UefiBootServicesTableLib
+  UefiImageOnlyNonFvLib
   OcApfsLib
   OcAppleBootPolicyLib
   OcAppleChunklistLib
@@ -105,10 +109,9 @@
   OcDevicePathLib
   OcFileLib
   OcFlexArrayLib
-  OcGuardLib
   OcMachoLib
   OcMiscLib
-  OcPeCoffLib
+  OcPeCoffExtLib
   OcRtcLib
   OcTypingLib
   OcVariableLib

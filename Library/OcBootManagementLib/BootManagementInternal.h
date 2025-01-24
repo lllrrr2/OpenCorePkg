@@ -114,6 +114,16 @@ typedef struct {
   BOOLEAN                     SkipRecovery;
 } INTERNAL_DEV_PATH_SCAN_INFO;
 
+///
+/// Entry visibility parameters set by .contentVisibility file.
+/// Hidden entries are not added to the list.
+///
+typedef enum {
+  BootEntryNormal,
+  BootEntryAuxiliary,
+  BootEntryDisabled,
+} INTERNAL_ENTRY_VISIBILITY;
+
 EFI_STATUS
 InternalCheckScanPolicy (
   IN  EFI_HANDLE  Handle,
@@ -123,8 +133,9 @@ InternalCheckScanPolicy (
 
 EFI_DEVICE_PATH_PROTOCOL *
 InternalLoadDmg (
-  IN OUT INTERNAL_DMG_LOAD_CONTEXT  *Context,
-  IN     OC_DMG_LOADING_SUPPORT     DmgLoading
+  IN OUT INTERNAL_DMG_LOAD_CONTEXT            *Context,
+  IN     OC_DMG_LOADING_SUPPORT               DmgLoading,
+  IN     OC_APPLE_DISK_IMAGE_PRELOAD_CONTEXT  *DmgPreloadContext
   );
 
 VOID
@@ -142,8 +153,7 @@ InternalGetAppleDiskLabel (
 CHAR8 *
 InternalGetContentFlavour (
   IN  EFI_SIMPLE_FILE_SYSTEM_PROTOCOL  *FileSystem,
-  IN  CONST CHAR16                     *BootDirectoryName,
-  IN  CONST CHAR16                     *FlavourFilename
+  IN  CONST CHAR16                     *BootDirectoryName
   );
 
 EFI_STATUS
@@ -168,14 +178,16 @@ InternalLoadBootEntry (
   IN  OC_BOOT_ENTRY              *BootEntry,
   IN  EFI_HANDLE                 ParentHandle,
   OUT EFI_HANDLE                 *EntryHandle,
-  OUT INTERNAL_DMG_LOAD_CONTEXT  *DmgLoadContext
+  OUT INTERNAL_DMG_LOAD_CONTEXT  *DmgLoadContext,
+  OUT VOID                       **CustomFreeContext
   );
 
 UINT16 *
 InternalGetBootOrderForBooting (
   IN  EFI_GUID  *BootVariableGuid,
   IN  BOOLEAN   BlacklistAppleUpdate,
-  OUT UINTN     *BootOrderCount
+  OUT UINTN     *BootOrderCount,
+  IN  BOOLEAN   UseBootNextOnly
   );
 
 VOID

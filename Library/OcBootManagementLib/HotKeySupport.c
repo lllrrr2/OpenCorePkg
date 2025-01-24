@@ -320,7 +320,7 @@ GetPickerKeyInfo (
   }
 
   //
-  // NB As historically SHIFT handling here is considered a 'hotkey':
+  // Note: As historically SHIFT handling here is considered a 'hotkey':
   // it's original reason for being here is to fix difficulties in
   // detecting this and other hotkey modifiers during no-picker boot.
   //
@@ -377,6 +377,12 @@ GetPickerKeyInfo (
 
     //
     // CMD+V is always valid and enables Verbose Mode.
+    //
+    // Note: Verbose boot may be entered in three different ways:
+    //  - Loaded image options passed from bootloader (as will happen due to below
+    //    code, when CMD+V is pressed during OpenCore picker menu).
+    //  - `-v` option in NVRAM `boot-args` variable.
+    //  - boot.efi itself detecting that CMD+V is held down when it starts.
     //
     if (HasCommand && HasKeyV) {
       if (OcGetArgumentFromCmd (Context->AppleBootArgs, "-v", L_STR_LEN ("-v"), NULL) == NULL) {
@@ -792,7 +798,7 @@ OcInitHotKeys (
   }
 
   //
-  // NB Raw AKMA is also still used for HotKeys, since we really do need
+  // Note: Raw AKMA is also still used for HotKeys, since we really do need
   // three different types of keys response for fluent UI behaviour.
   //
 

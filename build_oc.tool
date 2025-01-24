@@ -10,6 +10,7 @@ buildutil() {
     "AppleEfiSignTool"
     "ACPIe"
     "EfiResTool"
+    "ext4read"
     "LogoutHook"
     "acdtinfo"
     "disklabel"
@@ -26,6 +27,7 @@ buildutil() {
     "TestMacho"
     "TestMp3"
     "TestExt4Dxe"
+    "TestFatDxe"
     "TestNtfsDxe"
     "TestPeCoff"
     "TestProcessKernel"
@@ -66,6 +68,33 @@ buildutil() {
     cd - || exit 1
   done
   popd || exit
+}
+
+get_inf_version() {
+  VER="VERSION_STRING"
+
+  if [ ! -f "${1}" ]; then
+    echo "Missing .inf file ${1}" > /dev/stderr
+    exit 1
+  fi
+
+  ver_line=$(grep -E "${VER} *=" "${1}")
+
+  if [ "${ver_line}" = "" ] ; then
+    echo "Missing ${VER} in ${1}" > /dev/stderr
+    exit 1
+  fi
+
+  read -ra ver_array <<<"${ver_line}"
+
+  if [ "${ver_array[0]}" != "${VER}" ] ||
+     [ "${ver_array[1]}" != "=" ] ||
+     [ "${ver_array[2]}" = "" ] ; then
+    echo "Malformed ${VER} line in ${1}" > /dev/stderr
+    exit 1
+  fi
+
+  echo "${ver_array[2]}"
 }
 
 package() {
@@ -115,20 +144,10 @@ package() {
       mkdir -p "${dstdir}/${arch}/${dir}" || exit 1
     done
 
-    # Mark binaries to be recognisable by OcBootManagementLib.
-    bootsig="${selfdir}/Library/OcBootManagementLib/BootSignature.bin"
-    efiOCBMs=(
-      "Bootstrap.efi"
-      "OpenCore.efi"
-      )
-    for efiOCBM in "${efiOCBMs[@]}"; do
-      dd if="${bootsig}" \
-         of="${arch}/${efiOCBM}" seek=64 bs=1 count=56 conv=notrunc || exit 1
-    done
-
     # copy OpenCore main program.
     cp "${arch}/OpenCore.efi" "${dstdir}/${arch}/EFI/OC" || exit 1
     printf "%s" "OpenCore" > "${dstdir}/${arch}/EFI/OC/.contentFlavour" || exit 1
+    printf "%s" "Disabled" > "${dstdir}/${arch}/EFI/OC/.contentVisibility" || exit 1
 
     local suffix="${arch}"
     if [ "${suffix}" = "X64" ]; then
@@ -136,14 +155,17 @@ package() {
     fi
     cp "${arch}/Bootstrap.efi" "${dstdir}/${arch}/EFI/BOOT/BOOT${suffix}.efi" || exit 1
     printf "%s" "OpenCore" > "${dstdir}/${arch}/EFI/BOOT/.contentFlavour" || exit 1
+    printf "%s" "Disabled" > "${dstdir}/${arch}/EFI/BOOT/.contentVisibility" || exit 1
 
     efiTools=(
       "BootKicker.efi"
       "ChipTune.efi"
       "CleanNvram.efi"
       "CsrUtil.efi"
+      "FontTester.efi"
       "GopStop.efi"
       "KeyTester.efi"
+      "ListPartitions.efi"
       "MmapDump.efi"
       "ResetSystem.efi"
       "RtcRw.efi"
@@ -164,19 +186,27 @@ package() {
       "BiosVideo.efi"
       "CrScreenshotDxe.efi"
       "Dhcp4Dxe.efi"
+      "Dhcp6Dxe.efi"
       "DnsDxe.efi"
       "DpcDxe.efi"
       "Ext4Dxe.efi"
+      "FirmwareSettingsEntry.efi"
+      "Hash2DxeCrypto.efi"
       "HiiDatabase.efi"
       "HttpBootDxe.efi"
       "HttpDxe.efi"
       "HttpUtilitiesDxe.efi"
       "Ip4Dxe.efi"
+      "Ip6Dxe.efi"
       "MnpDxe.efi"
+      "Mtftp4Dxe.efi"
+      "Mtftp6Dxe.efi"
       "NvmExpressDxe.efi"
       "OpenCanopy.efi"
       "OpenHfsPlus.efi"
+      "OpenLegacyBoot.efi"
       "OpenLinuxBoot.efi"
+      "OpenNetworkBoot.efi"
       "OpenNtfsDxe.efi"
       "OpenPartitionDxe.efi"
       "OpenRuntime.efi"
@@ -184,11 +214,16 @@ package() {
       "OpenVariableRuntimeDxe.efi"
       "Ps2KeyboardDxe.efi"
       "Ps2MouseDxe.efi"
+      "RamDiskDxe.efi"
       "ResetNvramEntry.efi"
+      "RngDxe.efi"
       "SnpDxe.efi"
       "TcpDxe.efi"
+      "TlsDxe.efi"
       "ToggleSipEntry.efi"
       "Udp4Dxe.efi"
+      "Udp6Dxe.efi"
+      "UefiPxeBcDxe.efi"
       "UsbMouseDxe.efi"
       "XhciDxe.efi"
       )
@@ -223,7 +258,7 @@ package() {
     "FindSerialPort"
     "macrecovery"
     "kpdescribe"
-    "ShimToCert"
+    "ShimUtils"
     )
   for utilScpt in "${utilScpts[@]}"; do
     cp -r "${selfdir}/Utilities/${utilScpt}" "${dstdir}/Utilities"/ || exit 1
@@ -237,7 +272,7 @@ package() {
     "Launchd.command"
     "Launchd.command.plist"
     "README.md"
-    "nvramdump"
+    "Legacy/nvramdump"
     )
   for file in "${logoutFiles[@]}"; do
     cp "${selfdir}/Utilities/LogoutHook/${file}" "${dstdir}/Utilities/LogoutHook"/ || exit 1
@@ -247,8 +282,10 @@ package() {
   for arch in "${ARCHS[@]}"; do
     local tgt
     local booter
+    local booter_blockio
     tgt="$(basename "$(pwd)")"
     booter="$(pwd)/../../OpenDuetPkg/${tgt}/${arch}/boot"
+    booter_blockio="$(pwd)/../../OpenDuetPkg/${tgt}/${arch}/boot-blockio"
 
     if [ -f "${booter}" ]; then
       echo "Copying OpenDuetPkg boot file from ${booter}..."
@@ -256,7 +293,58 @@ package() {
     else
       echo "Failed to find OpenDuetPkg at ${booter}!"
     fi
+    if [ -f "${booter_blockio}" ]; then
+      echo "Copying OpenDuetPkg BlockIO boot file from ${booter_blockio}..."
+      cp "${booter_blockio}" "${dstdir}/Utilities/LegacyBoot/boot${arch}-blockio" || exit 1
+    else
+      echo "Failed to find OpenDuetPkg BlockIO at ${booter_blockio}!"
+    fi
   done
+
+  # Copy EFI-era Mac GOP firmware driver.
+  eg_ver=$(get_inf_version "${selfdir}/Staging/EnableGop/EnableGop.inf") || exit 1
+  egdirect_ver=$(get_inf_version "${selfdir}/Staging/EnableGop/EnableGopDirect.inf") || exit 1
+
+  if [ "${eg_ver}" != "${egdirect_ver}" ] ; then
+    echo "Mismatched EnableGop versions (${eg_ver} and ${egdirect_ver})!"
+    exit 1
+  fi
+
+  mkdir -p "${dstdir}/Utilities/EnableGop/Pre-release" || exit 1
+  ENABLE_GOP_GUID="3FBA58B1-F8C0-41BC-ACD8-253043A3A17F"
+  ffsNames=(
+    "EnableGop"
+    "EnableGopDirect"
+    )
+  for ffsName in "${ffsNames[@]}"; do
+    cp "FV/Ffs/${ENABLE_GOP_GUID}${ffsName}/${ENABLE_GOP_GUID}.ffs" "${dstdir}/Utilities/EnableGop/Pre-release/${ffsName}_${eg_ver}.ffs" || exit 1
+  done
+  gopDrivers=(
+    "EnableGop"
+    "EnableGopDirect"
+    )
+  for file in "${gopDrivers[@]}"; do
+    cp "X64/${file}.efi" "${dstdir}/Utilities/EnableGop/Pre-release/${file}_${eg_ver}.efi" || exit 1
+  done
+  helpFiles=(
+    "README.md"
+    "UEFITool_Inserted_Screenshot.png"
+    "vBiosInsert.sh"
+  )
+  for file in "${helpFiles[@]}"; do
+    cp "${selfdir}/Staging/EnableGop/${file}" "${dstdir}/Utilities/EnableGop"/ || exit 1
+  done
+  cp "${selfdir}/Staging/EnableGop/Release/"* "${dstdir}/Utilities/EnableGop"/ || exit 1
+
+  # Provide EDK-II BaseTools.
+  mkdir "${dstdir}/Utilities/BaseTools" || exit 1
+  if [ "$(unamer)" = "Windows" ]; then
+    cp "${selfdir}/UDK/BaseTools/Bin/Win32/EfiRom.exe" "${dstdir}/Utilities/BaseTools" || exit 1
+    cp "${selfdir}/UDK/BaseTools/Bin/Win32/GenFfs.exe" "${dstdir}/Utilities/BaseTools" || exit 1
+  else
+    cp "${selfdir}/UDK/BaseTools/Source/C/bin/EfiRom" "${dstdir}/Utilities/BaseTools" || exit 1
+    cp "${selfdir}/UDK/BaseTools/Source/C/bin/GenFfs" "${dstdir}/Utilities/BaseTools" || exit 1
+  fi
 
   utils=(
     "ACPIe"
@@ -301,11 +389,13 @@ if [ "$ARCHS" = "" ]; then
 fi
 SELFPKG=OpenCorePkg
 NO_ARCHIVES=0
+DISCARD_SUBMODULES=OpenCorePkg
 
 export SELFPKG
 export NO_ARCHIVES
+export DISCARD_SUBMODULES
 
-src=$(curl -Lfs https://raw.githubusercontent.com/acidanthera/ocbuild/master/efibuild.sh) && eval "$src" || exit 1
+src=$(curl -LfsS https://raw.githubusercontent.com/acidanthera/ocbuild/master/efibuild.sh) && eval "$src" || exit 1
 
 cd Utilities/ocvalidate || exit 1
 ocv_tool=""

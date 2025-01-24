@@ -403,6 +403,7 @@ PatcherExcludePrelinkedKext (
   VOID                      *KextData;
   UINT64                    AddressMax;
   UINT64                    VirtualAddress;
+  UINT64                    FileOffset;
   UINT64                    Size;
   UINT64                    MaxSize;
 
@@ -438,11 +439,24 @@ PatcherExcludePrelinkedKext (
   MaxSize = AddressMax - PatcherContext->VirtualBase;
 
   //
+  // Get file offset for 32-bit.
+  //
+  if (PatcherContext->Is32Bit) {
+    if (!GetTextBaseOffset (&PatcherContext->MachContext, &VirtualAddress, &FileOffset)) {
+      return EFI_UNSUPPORTED;
+    }
+
+    VirtualAddress += FileOffset;
+  } else {
+    VirtualAddress = PatcherContext->VirtualBase;
+  }
+
+  //
   // Zero out kext memory through PatcherContext->MachContext.
   //
   KextData = MachoGetFilePointerByAddress (
                &PatcherContext->MachContext,
-               PatcherContext->VirtualBase,
+               VirtualAddress,
                NULL
                );
   if (KextData == NULL) {
@@ -529,6 +543,172 @@ PatcherExcludePrelinkedKext (
 }
 
 EFI_STATUS
+PatcherExcludeMkextKext (
+  IN OUT MKEXT_CONTEXT  *MkextContext,
+  IN     CONST CHAR8    *Identifier
+  )
+{
+  EFI_STATUS           Status;
+  MKEXT_V2_FILE_ENTRY  *MkextV2FileEntry;
+  MKEXT_HEADER_ANY     *MkextHeader;
+  CONST CHAR8          *KextIdentifier;
+  BOOLEAN              IsKextMatch;
+
+  UINT32       PlistBundlesCount;
+  XML_NODE     *PlistBundle;
+  UINT32       PlistBundleIndex;
+  UINT32       PlistBundleCount;
+  CONST CHAR8  *PlistBundleKey;
+  XML_NODE     *PlistBundleKeyValue;
+
+  UINT32  Index;
+  UINT32  PlistOffset;
+  UINT32  PlistSize;
+  UINT32  BinOffset;
+  UINT32  BinSize;
+
+  ASSERT (MkextContext     != NULL);
+  ASSERT (Identifier       != NULL);
+
+  MkextHeader = MkextContext->MkextHeader;
+  IsKextMatch = FALSE;
+
+  //
+  // Mkext v1.
+  //
+  if (MkextContext->MkextVersion == MKEXT_VERSION_V1) {
+    Status = InternalGetMkextV1KextOffsets (MkextContext, Identifier, &Index, &PlistOffset, &PlistSize, &BinOffset, &BinSize);
+    if (EFI_ERROR (Status)) {
+      return Status;
+    }
+
+    DEBUG ((
+      DEBUG_INFO,
+      "OCAK: Excluding mkext v1 %a - plist %x (%x), binary %x (%x)\n",
+      Identifier,
+      PlistOffset,
+      PlistSize,
+      BinOffset,
+      BinSize
+      ));
+
+    //
+    // Zero out kext memory and kext list entry.
+    // A completely zero entry will be skipped by XNU, although a non-fatal error will be logged.
+    //
+    ZeroMem (&MkextContext->Mkext[PlistOffset], PlistSize);
+    ZeroMem (&MkextContext->Mkext[BinOffset], BinSize);
+    ZeroMem (&MkextHeader->V1.Kexts[Index], sizeof (MkextHeader->V1.Kexts[Index]));
+
+    //
+    // Mkext v2.
+    //
+  } else if (MkextContext->MkextVersion == MKEXT_VERSION_V2) {
+    //
+    // Enumerate bundle dicts and find kext to be removed.
+    //
+    PlistBundlesCount = XmlNodeChildren (MkextContext->MkextKexts);
+    for (Index = 0; Index < PlistBundlesCount; Index++) {
+      PlistBundle = PlistNodeCast (XmlNodeChild (MkextContext->MkextKexts, Index), PLIST_NODE_TYPE_DICT);
+      if (PlistBundle == NULL) {
+        continue;
+      }
+
+      PlistBundleCount = PlistDictChildren (PlistBundle);
+      for (PlistBundleIndex = 0; PlistBundleIndex < PlistBundleCount; PlistBundleIndex++) {
+        PlistBundleKey = PlistKeyValue (PlistDictChild (PlistBundle, PlistBundleIndex, &PlistBundleKeyValue));
+        if ((PlistBundleKey == NULL) || (PlistBundleKeyValue == NULL)) {
+          continue;
+        }
+
+        if (AsciiStrCmp (PlistBundleKey, INFO_BUNDLE_IDENTIFIER_KEY) == 0) {
+          KextIdentifier = XmlNodeContent (PlistBundleKeyValue);
+          if ((PlistNodeCast (PlistBundleKeyValue, PLIST_NODE_TYPE_STRING) == NULL) || (KextIdentifier == NULL)) {
+            DEBUG ((
+              DEBUG_INFO,
+              "OCAK: Plist value cannot be interpreted as string, or current kext identifier is null (dict index %u, plist %p, plist index %u)\n",
+              PlistBundleIndex,
+              PlistBundle,
+              Index
+              ));
+            return EFI_NOT_FOUND;
+          }
+        }
+
+        if (AsciiStrCmp (PlistBundleKey, MKEXT_EXECUTABLE_KEY) == 0) {
+          if (!PlistIntegerValue (PlistBundleKeyValue, &BinOffset, sizeof (BinOffset), TRUE)) {
+            DEBUG ((
+              DEBUG_INFO,
+              "OCAK: Plist value cannot be interpreted as integer (dict index %u, plist %p, plist index %u)\n",
+              PlistBundleIndex,
+              PlistBundle,
+              Index
+              ));
+            return EFI_NOT_FOUND;
+          }
+        }
+      }
+
+      if (  (KextIdentifier != NULL)
+         && (AsciiStrCmp (KextIdentifier, Identifier) == 0)
+         && (BinOffset > 0)
+         && (BinOffset < MkextContext->MkextSize - sizeof (MKEXT_V2_FILE_ENTRY)))
+      {
+        IsKextMatch = TRUE;
+        break;
+      }
+
+      KextIdentifier = NULL;
+      BinOffset      = 0;
+    }
+
+    //
+    // Bundle was not found, or invalid.
+    //
+    if (!IsKextMatch) {
+      return EFI_NOT_FOUND;
+    }
+
+    //
+    // Parse v2 binary header.
+    // We cannot support compressed binaries.
+    //
+    MkextV2FileEntry = (MKEXT_V2_FILE_ENTRY *)&MkextContext->Mkext[BinOffset];
+    if (MkextV2FileEntry->CompressedSize != 0) {
+      return EFI_UNSUPPORTED;
+    }
+
+    BinSize = SwapBytes32 (MkextV2FileEntry->FullSize);
+
+    DEBUG ((
+      DEBUG_INFO,
+      "OCAK: Excluding mkext v2 %a - dict index %u, plist %p, plist index %u, binary %x (%x)\n",
+      Identifier,
+      PlistBundleIndex,
+      PlistBundle,
+      Index,
+      BinOffset,
+      BinSize
+      ));
+
+    //
+    // Erase kext data and drop from plist.
+    //
+    ZeroMem (&MkextContext->Mkext[BinOffset], BinSize + sizeof (MKEXT_V2_FILE_ENTRY));
+    InternalDropCachedMkextKext (MkextContext, KextIdentifier);
+    XmlNodeRemoveByIndex (MkextContext->MkextKexts, Index);
+
+    //
+    // Unsupported version.
+    //
+  } else {
+    return EFI_UNSUPPORTED;
+  }
+
+  return EFI_SUCCESS;
+}
+
+EFI_STATUS
 PatcherBlockKext (
   IN OUT PATCHER_CONTEXT  *Context
   )
@@ -555,8 +735,8 @@ PatcherBlockKext (
   // Determine offset of kmod within file.
   //
   KmodOffset = Context->VirtualKmod - Context->VirtualBase;
-  if (  OcOverflowAddU64 (KmodOffset, Context->FileOffset, &KmodOffset)
-     || OcOverflowAddU64 (KmodOffset, Context->Is32Bit ? sizeof (KMOD_INFO_32_V1) : sizeof (KMOD_INFO_64_V1), &TmpOffset)
+  if (  BaseOverflowAddU64 (KmodOffset, Context->FileOffset, &KmodOffset)
+     || BaseOverflowAddU64 (KmodOffset, Context->Is32Bit ? sizeof (KMOD_INFO_32_V1) : sizeof (KMOD_INFO_64_V1), &TmpOffset)
      || (TmpOffset > MachSize))
   {
     return EFI_INVALID_PARAMETER;
@@ -577,7 +757,7 @@ PatcherBlockKext (
   }
 
   TmpOffset = StartAddr - Context->VirtualBase;
-  if (  OcOverflowAddU64 (TmpOffset, Context->FileOffset, &TmpOffset)
+  if (  BaseOverflowAddU64 (TmpOffset, Context->FileOffset, &TmpOffset)
      || (TmpOffset > MachSize - 6))
   {
     return EFI_BUFFER_TOO_SMALL;
@@ -649,7 +829,7 @@ KextFindKmodAddress (
     return FALSE;
   }
 
-  if (  OcOverflowTriAddU64 (Address, LoadAddress, Is32Bit ? Symbol->Symbol32.Value : Symbol->Symbol64.Value, &Address)
+  if (  BaseOverflowTriAddU64 (Address, LoadAddress, Is32Bit ? Symbol->Symbol32.Value : Symbol->Symbol64.Value, &Address)
      || (Address > LoadAddress + Size - (Is32Bit ? sizeof (KMOD_INFO_32_V1) : sizeof (KMOD_INFO_64_V1)))
      || (Is32Bit && (Address > MAX_UINT32)))
   {

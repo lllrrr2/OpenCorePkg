@@ -143,59 +143,67 @@ GetLogPath (
 STATIC
 EFI_STATUS
 GetLogPrefix (
-  IN   CONST CHAR8  *FormatString,
+  IN   CONST CHAR8  *FormattedString,
   OUT  CHAR8        *Prefix
   )
 {
-  UINTN  MaxLength;
-  UINTN  Index;
-  CHAR8  Curr;
+  UINTN  Pos;
+  CHAR8  Char;
 
-  ASSERT (FormatString != NULL);
+  ASSERT (FormattedString != NULL);
   ASSERT (Prefix != NULL);
 
-  //
-  // If FormatString just starts with colon, it must be illegal.
-  //
-  if (*FormatString == ':') {
-    return EFI_NOT_FOUND;
-  }
+  Pos = 0;
+  while (TRUE) {
+    Char = FormattedString[Pos];
 
-  MaxLength = MIN (AsciiStrLen (FormatString), OC_LOG_PREFIX_CHAR_MAX);
-  for (Index = 1; Index < MaxLength; ++Index) {
-    Curr = FormatString[Index];
+    //
+    // If we reached end of string, then ':' was not found.
+    //
+    if (Char == '\0') {
+      return EFI_NOT_FOUND;
+    }
 
     //
     // Match the first occurrence of colon.
     //
-    if (Curr == ':') {
+    if (Char == ':') {
+      //
+      // If log string starts with colon, it must be illegal.
+      //
+      if (Pos == 0) {
+        return EFI_NOT_FOUND;
+      }
+
       break;
+    }
+
+    //
+    // If size of prefix would exceed OC_LOG_PREFIX_CHAR_MAX, then not found.
+    //
+    if (Pos == OC_LOG_PREFIX_CHAR_MAX) {
+      return EFI_NOT_FOUND;
     }
 
     //
     // Except for colon, a valid prefix must be either 0-9, or uppercase letter.
     //
-    if (!(IsAsciiNumber (Curr) || ((Curr >= 'A') && (Curr <= 'Z')))) {
+    if (!(IsAsciiNumber (Char) || ((Char >= 'A') && (Char <= 'Z')))) {
       return EFI_NOT_FOUND;
     }
+
+    ++Pos;
   }
 
-  //
-  // If Index went through the end, then ':' was not found.
-  //
-  if (Index == MaxLength) {
-    return EFI_NOT_FOUND;
-  }
-
-  CopyMem (Prefix, FormatString, Index);
-  Prefix[Index] = '\0';
+  CopyMem (Prefix, FormattedString, Pos);
+  Prefix[Pos] = '\0';
   return EFI_SUCCESS;
 }
 
 STATIC
 BOOLEAN
 IsPrefixFiltered (
-  IN   CONST CHAR8          *FormatString,
+  IN   CONST CHAR8          *FormattedString,
   IN   CONST OC_FLEX_ARRAY  *FlexFilters    OPTIONAL,
   IN   BOOLEAN              BlacklistFiltering
   )
@@ -205,18 +213,18 @@ IsPrefixFiltered (
   EFI_STATUS  Status;
   CHAR8       **Value;
 
-  ASSERT (FormatString != NULL);
+  ASSERT (FormattedString != NULL);
 
   //
-  // Do not filter without filters, of course.
+  // Do not filter without filters.
   //
   if (FlexFilters == NULL) {
     return FALSE;
   }
 
-  Status = GetLogPrefix (FormatString, Prefix);
+  Status = GetLogPrefix (FormattedString, Prefix);
   if (EFI_ERROR (Status)) {
-    return FALSE;
+    AsciiStrCpyS (Prefix, ARRAY_SIZE (Prefix), "?");
   }
 
   for (Index = 0; Index < FlexFilters->Count; ++Index) {
@@ -225,14 +233,16 @@ IsPrefixFiltered (
 
     if (AsciiStrCmp (Prefix, *Value) == 0) {
       //
-      // Upon matching, return TRUE (i.e. not to print logs)
-      // if blacklisted.
+      // Upon matching, return TRUE (i.e. not to print logs) if blacklisted.
       //
       return BlacklistFiltering;
     }
   }
 
-  return FALSE;
+  //
+  // Otherwise return default, depending on positive or negative filtering.
+  //
+  return !BlacklistFiltering;
 }
 
 STATIC
@@ -241,6 +251,8 @@ InternalLogAddEntry (
   IN OC_LOG_PRIVATE_DATA  *Private,
   IN OC_LOG_PROTOCOL      *OcLog,
   IN UINTN                ErrorLevel,
+  IN CONST OC_FLEX_ARRAY  *FlexFilters    OPTIONAL,
+  IN BOOLEAN              BlacklistFiltering,
   IN CONST CHAR8          *FormatString,
   IN VA_LIST              Marker
   )
@@ -253,7 +265,6 @@ InternalLogAddEntry (
   UINT32                      KeySize;
   UINT32                      DataSize;
   UINT32                      TotalSize;
-  UINTN                       OldAsciiBufferOffset;
   UINTN                       WriteSize;
   UINTN                       WrittenSize;
 
@@ -263,6 +274,15 @@ InternalLogAddEntry (
     FormatString,
     Marker
     );
+
+  //
+  // Filter log after formatting string. Always log at WARN and ERROR level.
+  //
+  if (  ((ErrorLevel & (DEBUG_WARN | DEBUG_ERROR)) == 0)
+     && IsPrefixFiltered (Private->LineBuffer, Private->FlexFilters, Private->BlacklistFiltering))
+  {
+    return EFI_SUCCESS;
+  }
 
   //
   // Add Entry.
@@ -365,15 +385,12 @@ InternalLogAddEntry (
     //
     // Write to internal buffer.
     //
-
-    OldAsciiBufferOffset = Private->AsciiBufferOffset;
-
     Status = AsciiStrCatS (Private->AsciiBuffer, Private->AsciiBufferSize, Private->TimingTxt);
     if (!EFI_ERROR (Status)) {
-      Private->AsciiBufferOffset += AsciiStrLen (Private->TimingTxt);
-      Status                      = AsciiStrCatS (Private->AsciiBuffer, Private->AsciiBufferSize, Private->LineBuffer);
+      Private->AsciiBufferWrittenOffset += AsciiStrLen (Private->TimingTxt);
+      Status                             = AsciiStrCatS (Private->AsciiBuffer, Private->AsciiBufferSize, Private->LineBuffer);
       if (!EFI_ERROR (Status)) {
-        Private->AsciiBufferOffset += AsciiStrLen (Private->LineBuffer);
+        Private->AsciiBufferWrittenOffset += AsciiStrLen (Private->LineBuffer);
       }
     }
 
@@ -381,16 +398,22 @@ InternalLogAddEntry (
     // Write to a file.
     //
     if (((OcLog->Options & OC_LOG_FILE) != 0) && (OcLog->FileSystem != NULL)) {
+      //
+      // Log lines may arrive when CurrentTpl > TPL_CALLBACK, we must batch them
+      // and emit them when we can, in both log methods.
+      //
       if (EfiGetCurrentTpl () <= TPL_CALLBACK) {
         if (OcLog->UnsafeLogFile != NULL) {
           //
           // For non-broken FAT32 driver this is fine. For driver with broken write
           // support (e.g. Aptio IV) this can result in corrupt file or unusable fs.
           //
-          WriteSize   = Private->AsciiBufferOffset - OldAsciiBufferOffset;
+          ASSERT (Private->AsciiBufferWrittenOffset >= Private->AsciiBufferFlushedOffset);
+          WriteSize   = Private->AsciiBufferWrittenOffset - Private->AsciiBufferFlushedOffset;
           WrittenSize = WriteSize;
-          OcLog->UnsafeLogFile->Write (OcLog->UnsafeLogFile, &WrittenSize, &Private->AsciiBuffer[OldAsciiBufferOffset]);
+          OcLog->UnsafeLogFile->Write (OcLog->UnsafeLogFile, &WrittenSize, &Private->AsciiBuffer[Private->AsciiBufferFlushedOffset]);
           OcLog->UnsafeLogFile->Flush (OcLog->UnsafeLogFile);
+          Private->AsciiBufferFlushedOffset += WrittenSize;
           if (WriteSize != WrittenSize) {
             DEBUG ((
               DEBUG_VERBOSE,
@@ -478,7 +501,6 @@ OcLogAddEntry (
 {
   EFI_STATUS           Status;
   OC_LOG_PRIVATE_DATA  *Private;
-  BOOLEAN              IsFiltered;
 
   ASSERT (OcLog != NULL);
   ASSERT (FormatString != NULL);
@@ -492,14 +514,7 @@ OcLogAddEntry (
     return EFI_SUCCESS;
   }
 
-  //
-  // Filter log.
-  //
-  Status     = EFI_SUCCESS;
-  IsFiltered = IsPrefixFiltered (FormatString, Private->FlexFilters, Private->BlacklistFiltering);
-  if (!IsFiltered) {
-    Status = InternalLogAddEntry (Private, OcLog, ErrorLevel, FormatString, Marker);
-  }
+  Status = InternalLogAddEntry (Private, OcLog, ErrorLevel, Private->FlexFilters, Private->BlacklistFiltering, FormatString, Marker);
 
   if (  ((ErrorLevel & OcLog->HaltLevel) != 0)
      && (AsciiStrnCmp (FormatString, "\nASSERT_RETURN_ERROR", L_STR_LEN ("\nASSERT_RETURN_ERROR")) != 0)

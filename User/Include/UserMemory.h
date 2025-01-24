@@ -9,9 +9,16 @@
 extern UINTN  mPoolAllocations;
 extern UINTN  mPageAllocations;
 
-extern UINT64  mPoolAllocationMask;
-extern UINTN   mPoolAllocationIndex;
-extern UINT64  mPageAllocationMask;
-extern UINTN   mPageAllocationIndex;
+VOID
+ConfigureMemoryAllocations (
+  IN     CONST UINT8  *Data,
+  IN     UINTN        Size,
+  IN OUT UINT32       *ConfigSize
+  );
+
+VOID
+SetPoolAllocationSizeLimit (
+  UINTN  AllocationSize
+  );
 
 #endif // USER_MEMORY_H

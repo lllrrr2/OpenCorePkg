@@ -32,6 +32,7 @@ KEXT_PRECEDENCE  mKextPrecedence[] = {
   { "CpuTscSync.kext",                                                  "Lilu.kext"                },
   { "CPUFriend.kext",                                                   "Lilu.kext"                },
   { "CPUFriendDataProvider.kext",                                       "CPUFriend.kext"           },
+  { "CryptexFixup.kext",                                                "Lilu.kext"                },
   { "DebugEnhancer.kext",                                               "Lilu.kext"                },
   { "HibernationFixup.kext",                                            "Lilu.kext"                },
   { "NVMeFix.kext",                                                     "Lilu.kext"                },
@@ -70,7 +71,9 @@ KEXT_INFO  mKextInfo[] = {
   { "CpuTscSync.kext",                                                      "Contents/MacOS/CpuTscSync",          "Contents/Info.plist" },
   { "CPUFriend.kext",                                                       "Contents/MacOS/CPUFriend",           "Contents/Info.plist" },
   { "CPUFriendDataProvider.kext",                                           "",                                   "Contents/Info.plist" },
+  { "CryptexFixup.kext",                                                    "Contents/MacOS/CryptexFixup",        "Contents/Info.plist" },
   { "DebugEnhancer.kext",                                                   "Contents/MacOS/DebugEnhancer",       "Contents/Info.plist" },
+  { "EmeraldSDHC.kext",                                                     "Contents/MacOS/EmeraldSDHC",         "Contents/Info.plist" },
   { "HibernationFixup.kext",                                                "Contents/MacOS/HibernationFixup",    "Contents/Info.plist" },
   { "NVMeFix.kext",                                                         "Contents/MacOS/NVMeFix",             "Contents/Info.plist" },
   { "RestrictEvents.kext",                                                  "Contents/MacOS/RestrictEvents",      "Contents/Info.plist" },
@@ -83,6 +86,9 @@ KEXT_INFO  mKextInfo[] = {
   { "BrcmBluetoothInjectorLegacy.kext",                                     "",                                   "Contents/Info.plist" },
   { "BlueToolFixup.kext",                                                   "Contents/MacOS/BlueToolFixup",       "Contents/Info.plist" },
   { "BrcmFirmwareData.kext",                                                "Contents/MacOS/BrcmFirmwareData",    "Contents/Info.plist" },
+  //
+  // NOTE: BrcmFirmwareRepo.kext cannot be injected by the bootloader; when it is present, an error should be prompted.
+  //
   { "BrcmFirmwareRepo.kext",                                                "Contents/MacOS/BrcmFirmwareRepo",    "Contents/Info.plist" },
   { "BrcmNonPatchRAM.kext",                                                 "Contents/MacOS/BrcmNonPatchRAM",     "Contents/Info.plist" },
   { "BrcmNonPatchRAM2.kext",                                                "Contents/MacOS/BrcmNonPatchRAM2",    "Contents/Info.plist" },

@@ -59,10 +59,6 @@ OcShowMenuByOcEnter (
     return Status;
   }
 
-  //
-  // Extension for OpenCore builtin renderer to mark that we control text output here.
-  //
-  gST->ConOut->TestString (gST->ConOut, OC_CONSOLE_MARK_CONTROLLED);
   mPreviousMode = OcConsoleControlSetMode (EfiConsoleControlScreenGraphics);
 
   return EFI_SUCCESS;
@@ -75,10 +71,6 @@ OcShowMenuByOcLeave (
   )
 {
   GuiLibDestruct ();
-  //
-  // Extension for OpenCore builtin renderer to mark that we no longer control text output here.
-  //
-  gST->ConOut->TestString (gST->ConOut, OC_CONSOLE_MARK_UNCONTROLLED);
   OcConsoleControlSetMode (mPreviousMode);
 }
 
@@ -110,8 +102,18 @@ OcShowMenuByOc (
 
   *ChosenBootEntry = NULL;
   OcSetInitialCursorOffset ();
-  mGuiContext.BootEntry            = NULL;
-  mGuiContext.ReadyToBoot          = FALSE;
+  mGuiContext.BootEntry   = NULL;
+  mGuiContext.ReadyToBoot = FALSE;
+
+  //
+  // When enabled, re-run intro animation on each entry into menu, to avoid
+  // stuck animation which happens otherwise, if a menu item which returns to
+  // the menu is selected before the animation ends.
+  // Do not play intro animation for visually impaired users.
+  //
+  mGuiContext.UseMenuEaseIn = !BootContext->PickerContext->PickerAudioAssist
+                              && ((BootContext->PickerContext->PickerAttributes & OC_ATTR_REDUCE_MOTION) == 0);
+
   mGuiContext.HideAuxiliary        = BootContext->PickerContext->HideAuxiliary;
   mGuiContext.Refresh              = FALSE;
   mGuiContext.PickerContext        = BootContext->PickerContext;
@@ -123,12 +125,6 @@ OcShowMenuByOc (
   }
 
   mDrawContext.TimeOutSeconds = BootContext->PickerContext->TimeoutSeconds;
-  //
-  // Do not play intro animation for blind.
-  //
-  if (BootContext->PickerContext->PickerAudioAssist) {
-    mGuiContext.DoneIntroAnimation = TRUE;
-  }
 
   Status = BootPickerViewInitialize (
              &mDrawContext,
@@ -195,6 +191,20 @@ OcShowMenuByOc (
   GuiDrawLoop (&mDrawContext);
   ASSERT (mGuiContext.BootEntry != NULL || mGuiContext.Refresh);
 
+  //
+  // There are reasons to prefer not to perform this screen clear:
+  //  - If starting macOS, boot.efi performs the same screen clear to the same UI theme colour
+  //    immediately afterwards anyway
+  //  - The native Apple picker does not clear its graphics before exit (i.e. does not do this)
+  //  - Most OS booters in most circumstance perform their own screen clear
+  //  - Each screen clear on a slow GOP (such as direct GOP rendering) is a noticeable slowdown
+  // However:
+  //  - Windows without ACPI->Quirks->ResetLogoStatus does not clear any pre-existing graphics
+  //    - Ref: https://github.com/acidanthera/bugtracker/issues/2231
+  //  - Peforming this screen clear gives a sense of progress (i.e. something happens immediately
+  //    rather than nothing) if the selected entry will be very slow to start (e.g. Recovery, in
+  ///   some circumstances)
+  //
   if (!mGuiContext.Refresh) {
     //
     // Clear the screen only when we exit.
@@ -242,12 +252,8 @@ OcShowPasswordByOc (
 
   mDrawContext.TimeOutSeconds = 0;
 
-  //
-  // Do not play intro animation for blind.
-  //
-  if (Context->PickerAudioAssist) {
-    mGuiContext.DoneIntroAnimation = TRUE;
-  }
+  mGuiContext.UsePasswordEaseIn = !Context->PickerAudioAssist
+                                  && ((Context->PickerAttributes & OC_ATTR_REDUCE_MOTION) == 0);
 
   Status = PasswordViewInitialize (
              &mDrawContext,
@@ -261,10 +267,17 @@ OcShowPasswordByOc (
   GuiRedrawAndFlushScreen (&mDrawContext);
 
   GuiDrawLoop (&mDrawContext);
+
   //
-  // Clear the screen only if we will not show BootPicker afterwards.
+  // This screen clear is useful, even though the boot entry started will in general
+  // perform its own screen clear eventually anyway, since this gives a better sense
+  // of progress between (intentionally slow - computationally intensive) password
+  // verification and (can be slow) start of Recovery.
   //
   if (Context->PickerCommand != OcPickerShowPicker) {
+    //
+    // Clear the screen only if we will not show BootPicker afterwards.
+    //
     GuiClearScreen (&mDrawContext, &mGuiContext.BackgroundColor.Pixel);
   }
 

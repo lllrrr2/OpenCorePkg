@@ -49,6 +49,7 @@ WITHOUT WARRANTIES OR REPRESENTATIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED.
 #include <Library/OcSmcLib.h>
 #include <Library/OcOSInfoLib.h>
 #include <Library/OcUnicodeCollationEngGenericLib.h>
+#include <Library/OcPciIoLib.h>
 #include <Library/OcVariableLib.h>
 #include <Library/PrintLib.h>
 #include <Library/UefiBootServicesTableLib.h>
@@ -426,6 +427,10 @@ OcReinstallProtocols (
     DEBUG ((DEBUG_INFO, "OC: Failed to install key map protocols\n"));
   }
 
+  if (OcPciIoInstallProtocol (Config->Uefi.ProtocolOverrides.PciIo) == NULL) {
+    DEBUG ((DEBUG_INFO, "OC: Failed to install cpuio/pcirootbridgeio overrides\n"));
+  }
+
   InstallAppleEvent  = TRUE;
   OverrideAppleEvent = FALSE;
 
@@ -451,7 +456,10 @@ OcReinstallProtocols (
            Config->Uefi.AppleInput.PointerPollMax,
            Config->Uefi.AppleInput.PointerPollMask,
            Config->Uefi.AppleInput.PointerSpeedDiv,
-           Config->Uefi.AppleInput.PointerSpeedMul
+           Config->Uefi.AppleInput.PointerSpeedMul,
+           Config->Uefi.AppleInput.PointerDwellClickTimeout,
+           Config->Uefi.AppleInput.PointerDwellDoubleClickTimeout,
+           Config->Uefi.AppleInput.PointerDwellRadius
            ) == NULL)
      && InstallAppleEvent)
   {
@@ -557,6 +565,13 @@ OcLoadAppleSecureBoot (
       DEBUG ((DEBUG_INFO, "OC: Discovered x86legacy with zero ECID, using system-id\n"));
       OcGetLegacySecureBootECID (Config, &Config->Misc.Security.ApECID);
     }
+
+    //
+    // Forcibly disable single user mode in Apple Secure Boot mode.
+    // Previously EfiBoot correctly removed the -s argument from command-line,
+    // but for some reason it does not now.
+    //
+    Config->Booter.Quirks.DisableSingleUser = TRUE;
 
     Status = OcAppleImg4BootstrapValues (RealSecureBootModel, Config->Misc.Security.ApECID);
     if (EFI_ERROR (Status)) {
@@ -690,6 +705,7 @@ OcLoadBooterUefiSupport (
   AbcSettings.ProvideMaxSlide        = Config->Booter.Quirks.ProvideMaxSlide;
   AbcSettings.ProtectUefiServices    = Config->Booter.Quirks.ProtectUefiServices;
   AbcSettings.RebuildAppleMemoryMap  = Config->Booter.Quirks.RebuildAppleMemoryMap;
+  AbcSettings.ResizeUsePciRbIo       = Config->Uefi.Quirks.ResizeUsePciRbIo;
   AbcSettings.ResizeAppleGpuBars     = Config->Booter.Quirks.ResizeAppleGpuBars;
   AbcSettings.SetupVirtualMap        = Config->Booter.Quirks.SetupVirtualMap;
   AbcSettings.SignalAppleOS          = Config->Booter.Quirks.SignalAppleOS;
@@ -881,9 +897,11 @@ OcLoadUefiSupport (
   EFI_EVENT   Event;
   BOOLEAN     AccelEnabled;
 
+  OcUnloadDrivers (Config);
+
   OcReinstallProtocols (Config);
 
-  OcImageLoaderInit (Config->Booter.Quirks.ProtectUefiServices);
+  OcImageLoaderInit (Config->Booter.Quirks.ProtectUefiServices, Config->Booter.Quirks.FixupAppleEfiImages);
 
   OcLoadAppleSecureBoot (Config, CpuInfo);
 
@@ -936,9 +954,7 @@ OcLoadUefiSupport (
     OcInstallPermissiveSecurityPolicy ();
   }
 
-  if (Config->Uefi.Quirks.ForgeUefiSupport) {
-    OcForgeUefiSupport ();
-  }
+  OcForgeUefiSupport (Config->Uefi.Quirks.ForgeUefiSupport, FALSE);
 
   if (Config->Uefi.Quirks.ReloadOptionRoms) {
     OcReloadOptionRoms ();
@@ -952,8 +968,8 @@ OcLoadUefiSupport (
   if (  (Config->Uefi.Quirks.ResizeGpuBars >= 0)
      && (Config->Uefi.Quirks.ResizeGpuBars < PciBarTotal))
   {
-    DEBUG ((DEBUG_INFO, "OC: Increasing GPU BARs to %d\n", Config->Uefi.Quirks.ResizeGpuBars));
-    ResizeGpuBars (Config->Uefi.Quirks.ResizeGpuBars, TRUE);
+    DEBUG ((DEBUG_INFO, "OC: Setting GPU BARs to %d\n", Config->Uefi.Quirks.ResizeGpuBars));
+    ResizeGpuBars (Config->Uefi.Quirks.ResizeGpuBars, TRUE, Config->Uefi.Quirks.ResizeUsePciRbIo);
   }
 
   OcMiscUefiQuirksLoaded (Config);
@@ -1017,7 +1033,7 @@ OcLoadUefiSupport (
       );
   }
 
-  OcLoadUefiOutputSupport (Config);
+  OcLoadUefiOutputSupport (Storage, Config);
 
   OcLoadUefiAudioSupport (Storage, Config);
 

@@ -15,10 +15,10 @@ WITHOUT WARRANTIES OR REPRESENTATIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED.
 **/
 
 #include <Library/BaseMemoryLib.h>
+#include <Library/BaseOverflowLib.h>
 #include <Library/DebugLib.h>
 #include <Library/MemoryAllocationLib.h>
 #include <Library/OcAppleImageConversionLib.h>
-#include <Library/OcGuardLib.h>
 #include <Library/OcMiscLib.h>
 #include <Library/OcPngLib.h>
 #include <Library/UefiBootServicesTableLib.h>
@@ -238,7 +238,7 @@ OcAppleImageConversionInstallProtocol (
   if (Reinstall) {
     Status = OcUninstallAllProtocolInstances (&gAppleImageConversionProtocolGuid);
     if (EFI_ERROR (Status)) {
-      DEBUG ((DEBUG_ERROR, "OCIC: Uninstall failed: %r\n", Status));
+      DEBUG ((DEBUG_ERROR, "OCIC: Uninstall failed - %r\n", Status));
       return NULL;
     }
   } else {

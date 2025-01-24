@@ -19,9 +19,9 @@
 #include <Protocol/MpService.h>
 #include <Library/BaseLib.h>
 #include <Library/BaseMemoryLib.h>
+#include <Library/BaseOverflowLib.h>
 #include <Library/DebugLib.h>
 #include <Library/OcCpuLib.h>
-#include <Library/OcGuardLib.h>
 #include <Library/MemoryAllocationLib.h>
 #include <Library/UefiBootServicesTableLib.h>
 #include <IndustryStandard/ProcessorInfo.h>
@@ -353,7 +353,7 @@ ScanIntelFSBFrequency (
     if (MaxBusRatioDiv == 0) {
       CpuInfo->FSBFrequency = DivU64x32 (CpuInfo->CPUFrequency, MaxBusRatio);
     } else {
-      CpuInfo->FSBFrequency = MultThenDivU64x64x32 (
+      CpuInfo->FSBFrequency = BaseMultThenDivU64x64x32 (
                                 CpuInfo->CPUFrequency,
                                 2,
                                 2 * MaxBusRatio + 1,
@@ -428,6 +428,9 @@ ScanIntelProcessor (
   UINT64                                            Msr;
   CPUID_CACHE_PARAMS_EAX                            CpuidCacheEax;
   CPUID_CACHE_PARAMS_EBX                            CpuidCacheEbx;
+  CPUID_EXTENDED_TOPOLOGY_EAX                       CpuidExTopologyEax;
+  CPUID_EXTENDED_TOPOLOGY_EBX                       CpuidExTopologyEbx;
+  CPUID_EXTENDED_TOPOLOGY_ECX                       CpuidExTopologyEcx;
   MSR_SANDY_BRIDGE_PKG_CST_CONFIG_CONTROL_REGISTER  PkgCstConfigControl;
   UINT16                                            CoreCount;
   CONST CHAR8                                       *TimerSourceType;
@@ -555,7 +558,6 @@ ScanIntelProcessor (
         || (Cpu->CpuGeneration == OcCpuGenerationYonahMerom)
         || (Cpu->CpuGeneration == OcCpuGenerationPenryn)
         || (Cpu->CpuGeneration == OcCpuGenerationBonnell)
-        || (Cpu->CpuGeneration == OcCpuGenerationSilvermont)
         || Cpu->Hypervisor))
   {
     AsmCpuidEx (CPUID_CACHE_PARAMS, 0, &CpuidCacheEax.Uint32, &CpuidCacheEbx.Uint32, NULL, NULL);
@@ -574,6 +576,19 @@ ScanIntelProcessor (
         Cpu->ThreadCount = Cpu->CoreCount;
       }
     }
+  } else if (Cpu->CpuGeneration == OcCpuGenerationSilvermont) {
+    //
+    // MSR 0x35 is unsupported, and CPUID leaf 4 does not give correct information on Silvermont Celeron/Atom processors.
+    // Use CPUID leaf 11 instead.
+    // No Hyperthreading on these processors, should be ok to assume logical processor count == core count.
+    //
+    // Level 0 - threads per core.
+    AsmCpuidEx (CPUID_EXTENDED_TOPOLOGY, 0, &CpuidExTopologyEax.Uint32, &CpuidExTopologyEbx.Uint32, &CpuidExTopologyEcx.Uint32, NULL);
+
+    // Level 1 - total logical processor count.
+    AsmCpuidEx (CPUID_EXTENDED_TOPOLOGY, 1, &CpuidExTopologyEax.Uint32, &CpuidExTopologyEbx.Uint32, &CpuidExTopologyEcx.Uint32, NULL);
+    Cpu->CoreCount   = (UINT16)GetPowerOfTwo32 (CpuidExTopologyEbx.Bits.LogicalProcessors);
+    Cpu->ThreadCount = Cpu->CoreCount;
   } else if (Cpu->CpuGeneration == OcCpuGenerationWestmere) {
     Msr              = AsmReadMsr64 (MSR_CORE_THREAD_COUNT);
     Cpu->CoreCount   = (UINT16)BitFieldRead64 (Msr, 16, 19);
@@ -675,6 +690,35 @@ ScanAmdProcessor (
     MaxBusRatio     = 0;
 
     switch (Cpu->ExtFamily) {
+      case AMD_CPU_EXT_FAMILY_1AH:
+        if (Cpu->CPUFrequencyFromVMT == 0) {
+          CofVid          = AsmReadMsr64 (K10_PSTATE_STATUS);
+          CoreFrequencyID = (UINT8)BitFieldRead64 (CofVid, 0, 11); // 12-bit field for FID
+
+          // On AMD Family 1Ah and later, if the Frequency ID (FID) exceeds 0x0f,
+          // the core frequency is scaled by a factor of 5. This scaling behavior
+          // is based on Linux kernel logic for handling higher frequency multipliers
+          // in newer AMD CPUs, where the FID no longer directly correlates to the
+          // bus ratio.
+          if (CoreFrequencyID > 0x0f) {
+            CoreFrequencyID *= 5;
+          }
+
+          MaxBusRatio = (UINT8)(CoreFrequencyID);
+        }
+
+        //
+        // Get core count from CPUID
+        //
+        if (Cpu->MaxExtId >= 0x8000001E) {
+          AsmCpuid (0x8000001E, NULL, &CpuidEbx, NULL, NULL);
+          Cpu->CoreCount = (UINT16)DivU64x32 (
+                                     Cpu->ThreadCount,
+                                     (BitFieldRead32 (CpuidEbx, 8, 15) + 1)
+                                     );
+        }
+
+        break;
       case AMD_CPU_EXT_FAMILY_17H:
       case AMD_CPU_EXT_FAMILY_19H:
         if (Cpu->CPUFrequencyFromVMT == 0) {
@@ -702,6 +746,7 @@ ScanAmdProcessor (
         }
 
         break;
+      case AMD_CPU_EXT_FAMILY_10H:
       case AMD_CPU_EXT_FAMILY_15H:
       case AMD_CPU_EXT_FAMILY_16H:
         if (Cpu->CPUFrequencyFromVMT == 0) {
@@ -725,8 +770,25 @@ ScanAmdProcessor (
         }
 
         //
-        // AMD 15h and 16h CPUs don't support hyperthreading,
-        // so the core count is equal to the thread count
+        // AMD 10h, 15h, and 16h CPUs don't support hyperthreading,
+        // so the core count is equal to the thread count.
+        //
+        Cpu->CoreCount = Cpu->ThreadCount;
+        break;
+      case AMD_CPU_EXT_FAMILY_0FH:
+        if (Cpu->CPUFrequencyFromVMT == 0) {
+          // FIXME: Please refer to FIXME(1) for the MSR used here.
+          CofVid          = AsmReadMsr64 (K8_FIDVID_STATUS);
+          CoreFrequencyID = (UINT8)BitFieldRead64 (CofVid, 0, 5);
+
+          // Frequency ID directly specifies the clock multiplier as a 6-bit coding.
+          // Coding starts at x4.
+          MaxBusRatio = (CoreFrequencyID / 2) + 4;
+        }
+
+        //
+        // AMD 0Fh CPUs don't support hyperthreading,
+        // so the core count is equal to the thread count.
         //
         Cpu->CoreCount = Cpu->ThreadCount;
         break;
@@ -752,6 +814,8 @@ ScanAmdProcessor (
       //
       if (MaxBusRatio == 0) {
         Cpu->FSBFrequency = 100000000; // 100 MHz like Intel part.
+      } else if (Cpu->ExtFamily == AMD_CPU_EXT_FAMILY_1AH) {
+        Cpu->FSBFrequency = DivU64x32 (Cpu->CPUFrequency, CoreFrequencyID);  // No divisor for Family 1Ah
       } else {
         Cpu->FSBFrequency = DivU64x32 (Cpu->CPUFrequency, MaxBusRatio);
       }
@@ -996,6 +1060,14 @@ OcCpuGetMsrReport (
   // The CPU model must be Intel, as MSRs are not available on other platforms.
   //
   if (CpuInfo->Vendor[0] != CPUID_VENDOR_INTEL) {
+    return;
+  }
+
+  //
+  // Hypervisors virtualise MSRs so the values are either not present
+  // and cause a crash or are irrelevant as they report placeholders.
+  //
+  if (CpuInfo->Hypervisor) {
     return;
   }
 
@@ -1349,7 +1421,6 @@ InternalDetectIntelProcessorGeneration (
         break;
       case CPU_MODEL_BONNELL:
       case CPU_MODEL_BONNELL_MID:
-      case CPU_MODEL_AVOTON: /* perhaps should be distinct */
         CpuGeneration = OcCpuGenerationBonnell;
         break;
       case CPU_MODEL_DALES_32NM:
@@ -1364,6 +1435,7 @@ InternalDetectIntelProcessorGeneration (
       case CPU_MODEL_SILVERMONT:
       case CPU_MODEL_GOLDMONT:
       case CPU_MODEL_AIRMONT:
+      case CPU_MODEL_AVOTON:
         CpuGeneration = OcCpuGenerationSilvermont;
         break;
       case CPU_MODEL_IVYBRIDGE:
@@ -1418,6 +1490,15 @@ InternalDetectIntelProcessorGeneration (
         break;
       case CPU_MODEL_ALDERLAKE_S:
         CpuGeneration = OcCpuGenerationAlderLake;
+        break;
+      case CPU_MODEL_RAPTORLAKE_S:
+      case CPU_MODEL_RAPTORLAKE_HX:
+        CpuGeneration = OcCpuGenerationRaptorLake;
+        break;
+      case CPU_MODEL_ARROWLAKE_S:
+      case CPU_MODEL_ARROWLAKE_HX:
+      case CPU_MODEL_ARROWLAKE_U:
+        CpuGeneration = OcCpuGenerationArrowLake;
         break;
       default:
         if (CpuInfo->Model < CPU_MODEL_PENRYN) {

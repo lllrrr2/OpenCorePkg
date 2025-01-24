@@ -25,11 +25,11 @@
 
 #include <Library/BaseLib.h>
 #include <Library/BaseMemoryLib.h>
+#include <Library/BaseOverflowLib.h>
 #include <Library/DebugLib.h>
 #include <Library/MemoryAllocationLib.h>
 #include <Library/OcMiscLib.h>
 #include <Library/OcDataHubLib.h>
-#include <Library/OcGuardLib.h>
 #include <Library/OcStringLib.h>
 #include <Library/UefiBootServicesTableLib.h>
 #include <Library/UefiLib.h>
@@ -55,7 +55,7 @@ OcDataHubInstallProtocol (
   if (Reinstall) {
     Status = OcUninstallAllProtocolInstances (&gEfiDataHubProtocolGuid);
     if (EFI_ERROR (Status)) {
-      DEBUG ((DEBUG_ERROR, "OCDH: Uninstall failed: %r\n", Status));
+      DEBUG ((DEBUG_ERROR, "OCDH: Uninstall failed - %r\n", Status));
       return NULL;
     }
   } else {
@@ -201,7 +201,7 @@ SetDataHubEntry (
   BOOLEAN                     Result;
 
   KeySize = (UINT32)StrSize (Key);
-  Result  = OcOverflowTriAddU32 (
+  Result  = BaseOverflowTriAddU32 (
               sizeof (*Entry),
               KeySize,
               DataSize,

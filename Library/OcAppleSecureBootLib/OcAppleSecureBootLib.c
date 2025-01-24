@@ -22,11 +22,11 @@ WITHOUT WARRANTIES OR REPRESENTATIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED.
 
 #include <Library/BaseLib.h>
 #include <Library/BaseMemoryLib.h>
+#include <Library/BaseOverflowLib.h>
 #include <Library/DebugLib.h>
 #include <Library/MemoryAllocationLib.h>
 #include <Library/OcDevicePathLib.h>
 #include <Library/OcFileLib.h>
-#include <Library/OcGuardLib.h>
 #include <Library/OcMiscLib.h>
 #include <Library/OcStringLib.h>
 #include <Library/PrintLib.h>
@@ -595,7 +595,7 @@ InternalGetImg4ByPath (
     return EFI_NO_MEDIA;
   }
 
-  Result = OcOverflowAddUN (
+  Result = BaseOverflowAddUN (
              ImagePathSize,
              ManifestSuffixMaxSize,
              &ManifestPathSize
@@ -615,11 +615,13 @@ InternalGetImg4ByPath (
                   (VOID **)&FileSystem
                   );
   if (EFI_ERROR (Status)) {
+    FreePool (Path);
     return EFI_NO_MEDIA;
   }
 
   Status = FileSystem->OpenVolume (FileSystem, &Root);
   if (EFI_ERROR (Status)) {
+    FreePool (Path);
     return EFI_NO_MEDIA;
   }
 
@@ -653,12 +655,14 @@ InternalGetImg4ByPath (
   }
 
   if (!Result) {
+    FreePool (Path);
     Root->Close (Root);
     return EFI_LOAD_ERROR;
   }
 
   ManifestBuffer = InternalReadFile (Root, Path, &ManifestSize);
 
+  FreePool (Path);
   Root->Close (Root);
 
   if (ManifestBuffer == NULL) {
@@ -915,7 +919,7 @@ OcAppleSecureBootInstallProtocol (
   if (Reinstall) {
     Status = OcUninstallAllProtocolInstances (&gAppleSecureBootProtocolGuid);
     if (EFI_ERROR (Status)) {
-      DEBUG ((DEBUG_ERROR, "OCSB: Uninstall failed: %r\n", Status));
+      DEBUG ((DEBUG_ERROR, "OCSB: Uninstall failed - %r\n", Status));
       return NULL;
     }
   } else {

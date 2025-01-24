@@ -14,12 +14,12 @@
 #ifndef OC_MAIN_LIB
 #define OC_MAIN_LIB
 
+#include <Library/BaseOverflowLib.h>
 #include <Library/OcAppleKernelLib.h>
 #include <Library/OcBootManagementLib.h>
 #include <Library/OcConfigurationLib.h>
 #include <Library/OcCpuLib.h>
 #include <Library/OcCryptoLib.h>
-#include <Library/OcGuardLib.h>
 #include <Library/OcMiscLib.h>
 #include <Library/OcStringLib.h>
 #include <Library/OcStorageLib.h>
@@ -30,7 +30,7 @@
   OpenCore version reported to log and NVRAM.
   OPEN_CORE_VERSION must follow X.Y.Z format, where X.Y.Z are single digits.
 **/
-#define OPEN_CORE_VERSION  "0.8.5"
+#define OPEN_CORE_VERSION  "1.0.4"
 
 /**
   OpenCore build type reported to log and NVRAM.
@@ -279,11 +279,13 @@ OcLoadUefiInputSupport (
 /**
   Load UEFI output compatibility support.
 
+  @param[in]  Storage   OpenCore storage.
   @param[out] Config    OpenCore configuration.
 **/
 VOID
 OcLoadUefiOutputSupport (
-  IN OC_GLOBAL_CONFIG  *Config
+  IN OC_STORAGE_CONTEXT  *Storage,
+  IN OC_GLOBAL_CONFIG    *Config
   );
 
 /**
@@ -424,6 +426,28 @@ OcMiscUefiQuirksLoaded (
 BOOLEAN
 OcPlatformIs64BitSupported (
   IN UINT32  KernelVersion
+  );
+
+/**
+  Unload loaded images by name.
+
+  @param[in]  Config     OpenCore configuration.
+**/
+VOID
+OcUnloadDrivers (
+  IN  OC_GLOBAL_CONFIG  *Config
+  );
+
+/**
+  Dump loaded image driver info to the specified directory.
+
+  @param[in]  Root     Directory to write CPU data.
+
+  @retval EFI_SUCCESS on success.
+**/
+EFI_STATUS
+OcDriverInfoDump (
+  IN EFI_FILE_PROTOCOL  *Root
   );
 
 #endif // OC_MAIN_LIB

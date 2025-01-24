@@ -25,7 +25,7 @@
 #include "HdaController.h"
 #include "HdaControllerComponentName.h"
 
-#include <Library/OcGuardLib.h>
+#include <Library/BaseOverflowLib.h>
 #include <Library/OcDeviceMiscLib.h>
 #include <Library/OcDebugLogLib.h>
 #include <Library/OcDevicePathLib.h>
@@ -33,6 +33,12 @@
 #include <Library/OcMiscLib.h>
 #include <Library/OcStringLib.h>
 #include <Library/PcdLib.h>
+
+BOOLEAN
+  gRestoreNoSnoop = FALSE;
+
+EFI_DEVICE_PATH_PROTOCOL *
+  gForcedControllerDevicePath = NULL;
 
 VOID
 EFIAPI
@@ -121,7 +127,7 @@ HdaControllerStreamOutputPollTimerHandler (
   HdaStream->DmaPositionLast = HdaStreamDmaPos;
 
   if (HdaStream->BufferActive) {
-    if (OcOverflowAddU32 (HdaStream->DmaPositionTotal, DmaChanged, &HdaStream->DmaPositionTotal)) {
+    if (BaseOverflowAddU32 (HdaStream->DmaPositionTotal, DmaChanged, &HdaStream->DmaPositionTotal)) {
       HdaControllerStreamAbort (HdaStream);
       return;
     }
@@ -153,7 +159,7 @@ HdaControllerStreamOutputPollTimerHandler (
 
       HdaSourceLength = HDA_BDL_BLOCKSIZE;
 
-      if (OcOverflowAddU32 (HdaStream->BufferSourcePosition, HdaSourceLength, &Tmp)) {
+      if (BaseOverflowAddU32 (HdaStream->BufferSourcePosition, HdaSourceLength, &Tmp)) {
         HdaControllerStreamAbort (HdaStream);
         return;
       }
@@ -170,7 +176,7 @@ HdaControllerStreamOutputPollTimerHandler (
       }
 
       CopyMem (HdaStream->BufferData + HdaNextBlock * HDA_BDL_BLOCKSIZE, HdaStream->BufferSource + HdaStream->BufferSourcePosition, HdaSourceLength);
-      if (OcOverflowAddU32 (HdaStream->BufferSourcePosition, HdaSourceLength, &HdaStream->BufferSourcePosition)) {
+      if (BaseOverflowAddU32 (HdaStream->BufferSourcePosition, HdaSourceLength, &HdaStream->BufferSourcePosition)) {
         HdaControllerStreamAbort (HdaStream);
         return;
       }
@@ -1090,6 +1096,13 @@ HdaControllerDriverBindingStart (
                     OpenMode
                     );
 
+    if (  (OpenMode == EFI_OPEN_PROTOCOL_BY_DRIVER)
+       && (Status   == EFI_ALREADY_STARTED))
+    {
+      DEBUG ((DEBUG_INFO, "HDA: %a%a - %r\n", "Open PCI I/O protocol", "", Status));
+      return Status;
+    }
+
     if (EFI_ERROR (Status)) {
       if (  PcdGetBool (PcdAudioControllerTryProtocolGetMode)
          && (Status == EFI_ACCESS_DENIED)
@@ -1098,14 +1111,15 @@ HdaControllerDriverBindingStart (
         //
         // No longer applied just if protocol gVMwareHdaProtocolGuid is found, since it also
         // allows sound on other devices where HDA controller is already connected, e.g. Macs.
-        // Now on Pcd because it appears never to be needed if DisconnectHda is applied.
+        // On many systems DisconnectHda can be used to avoid the need for this fallback, but
+        // on some - such as Acer E5 - DisconnectHda does not work but this method does.
         //
         DEBUG ((DEBUG_INFO, "HDA: %r using DRIVER mode, trying GET mode\n", Status));
         OpenMode = EFI_OPEN_PROTOCOL_GET_PROTOCOL;
         continue;
       }
 
-      DEBUG ((DEBUG_WARN, "HDA: Open PCI I/O protocol (try DisconnectHda quirk?) - %r\n", Status));
+      DEBUG ((DEBUG_WARN, "HDA: %a%a - %r\n", "Open PCI I/O protocol", " (try DisconnectHda quirk?)", Status));
       return Status;
     }
   } while (EFI_ERROR (Status));
